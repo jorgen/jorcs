@@ -1,0 +1,20 @@
+{
+  "name": "jorcs",
+  "type": "module",
+  "collaborators": [
+    "Jørgen Lind <jorgen.lind@gmail.com>"
+  ],
+  "version": "0.1.0",
+  "files": [
+    "jorcs_bg.wasm",
+    "jorcs.js",
+    "jorcs_bg.js",
+    "jorcs.d.ts"
+  ],
+  "main": "jorcs.js",
+  "types": "jorcs.d.ts",
+  "sideEffects": [
+    "./jorcs.js",
+    "./snippets/*"
+  ]
+}
