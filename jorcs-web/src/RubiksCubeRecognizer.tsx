@@ -1,15 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { detectCubeAlignment } from './cubeDetection';
 import { recognizeColorsFromGrid } from './colorRecognition';
+import OverlayInstructions from './OverlayInstructions';
+import ColorPalette from './ColorPalette';
 
+
+type GridSquare = {
+  row: number;
+  col: number;
+  x: number;
+  y: number;
+  size: number;
+};
 
 type RubiksCubeRecognizerProps = {
-  onColorRecognized?: (colors: string[][]) => void;
+  onCubeScanned?: (cubeColors: string[][][]) => void;
 };
 
 declare const cv: any; // Declare OpenCV.js
 
-const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorRecognized }) => {
+const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onCubeScanned }) => {
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const binaryCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -17,16 +27,27 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
   const horizontalLinesCanvasRef = useRef<HTMLCanvasElement>(null);
   const combinedLinesCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameId = useRef<number>();
+
+  // New state variables
   const [cubeDetected, setCubeDetected] = useState(false);
   const cubeDetectionCounter = useRef(0);
   const cubeDetectionThreshold = 10; // Number of consecutive frames the cube must be detected
   const [opencvReady, setOpencvReady] = useState(false);
   const [detectionEnabled, setDetectionEnabled] = useState(true);
+  const detectionTimeoutRef = useRef<number | null>(null);
+
+  // New states for side scanning
+  const [currentSide, setCurrentSide] = useState(0); // Side index from 0 to 5
+  const [cubeColors, setCubeColors] = useState<string[][][]>([]); // Array to store colors of each side
   const [overlayData, setOverlayData] = useState<{
     colors: string[][];
     hsvValues: { h: number; s: number; v: number }[][];
   } | null>(null);
-  const detectionTimeoutRef = useRef<number | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
+
+  const [gridSquares, setGridSquares] = useState<GridSquare[]>([]);
+  const [selectedSquare, setSelectedSquare] = useState<GridSquare | null>(null);
+  const [showColorPalette, setShowColorPalette] = useState(false);
 
   useEffect(() => {
     // Wait for OpenCV.js to be ready
@@ -147,6 +168,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
           if (overlayData) {
             drawOverlayColors(ctx, overlayData);
           }
+          drawSideOverlay(ctx, currentSide);
         }
       }
       animationFrameId.current = requestAnimationFrame(renderFrame);
@@ -205,10 +227,13 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
       }
     };
 
-    const drawOverlayColors = (ctx: CanvasRenderingContext2D, overlayData: {
-      colors: string[][];
-      hsvValues: { h: number; s: number; v: number }[][];
-    }) => {
+    const drawOverlayColors = (
+      ctx: CanvasRenderingContext2D,
+      overlayData: {
+        colors: string[][];
+        hsvValues: { h: number; s: number; v: number }[][];
+      },
+    ) => {
       const canvas = canvasRef.current!;
       const gridSize = 3;
 
@@ -223,6 +248,8 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
 
       ctx.globalAlpha = 0.5; // Set transparency
 
+      const squares: GridSquare[] = []; // Array to store grid square positions
+
       for (let row = 0; row < gridSize; row++) {
         for (let col = 0; col < gridSize; col++) {
           const colorName = overlayData.colors[row][col];
@@ -231,6 +258,9 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
           const x = gridX + col * squareSize;
           const y = gridY + row * squareSize;
           ctx.fillRect(x, y, squareSize, squareSize);
+
+          // Store the square's position and size
+          squares.push({ row, col, x, y, size: squareSize });
 
           // Overlay the HSV values
           const hsv = overlayData.hsvValues[row][col];
@@ -247,6 +277,21 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
       }
 
       ctx.globalAlpha = 1.0; // Reset transparency
+
+      // Update the gridSquares state
+      setGridSquares(squares);
+    };
+
+    const drawSideOverlay = (ctx: CanvasRenderingContext2D, sideIndex: number) => {
+      // You can implement custom drawings or use images to indicate the side orientation
+      // For simplicity, we'll just display the side number
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(10, 10, 120, 40);
+      ctx.fillStyle = 'white';
+      ctx.font = '20px Arial';
+      ctx.fillText(`Side ${sideIndex + 1}/6`, 20, 40);
+      ctx.restore();
     };
 
     const compareLinesWithOverlay = (
@@ -291,17 +336,38 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
       return verticalMatchRatio >= matchThreshold && horizontalMatchRatio >= matchThreshold;
     };
 
-    const captureFrame = (ctx: CanvasRenderingContext2D) => {
-      if (canvasRef.current) {
-        const result = recognizeColorsFromGrid(ctx, canvasRef.current);
-        setOverlayData(result); // Set the overlay data to display
-        if (onColorRecognized) {
-          onColorRecognized(result.colors);
+    initCamera();
+
+    const handleCanvasClick = (event: MouseEvent) => {
+      if (!canvasRef.current || !overlayData || !gridSquares.length) return;
+
+      const canvas = canvasRef.current!;
+      // Get the click coordinates relative to the canvas
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
+      const x = (event.clientX - rect.left) * scaleX;
+      const y = (event.clientY - rect.top) * scaleY;
+
+      // Check if the click is within any of the grid squares
+      for (const square of gridSquares) {
+        if (
+          x >= square.x &&
+          x <= square.x + square.size &&
+          y >= square.y &&
+          y <= square.y + square.size
+        ) {
+          // Square was clicked
+          setSelectedSquare(square);
+          setShowColorPalette(true);
+          break;
         }
       }
     };
 
-    initCamera();
+    if (canvasRef.current)
+      canvasRef.current.addEventListener('click', handleCanvasClick);
 
     return () => {
       // Clean up the media stream and animation frame on unmount
@@ -313,9 +379,70 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
       if (detectionTimeoutRef.current) {
         clearTimeout(detectionTimeoutRef.current);
       }
-    };
-  }, [cubeDetected, opencvReady, detectionEnabled, overlayData]);
 
+      if (canvasRef.current)
+        canvasRef.current.removeEventListener('click', handleCanvasClick);
+    };
+  }, [cubeDetected, opencvReady, detectionEnabled, overlayData, currentSide, gridSquares]);
+
+  const handleColorSelect = (color: string) => {
+    if (!overlayData || !selectedSquare) return;
+
+    // Update the color in the overlayData
+    const updatedOverlayData = { ...overlayData };
+    updatedOverlayData.colors = overlayData.colors.map((row, rowIndex) =>
+      row.map((colColor, colIndex) => {
+        if (rowIndex === selectedSquare.row && colIndex === selectedSquare.col) {
+          return color;
+        }
+        return colColor;
+      }),
+    );
+
+    setOverlayData(updatedOverlayData);
+
+    // Close the color palette
+    setShowColorPalette(false);
+    setSelectedSquare(null);
+  };
+
+  const handleNextSide = () => {
+    if (!overlayData) return;
+
+    setCubeColors([...cubeColors, overlayData.colors]); // Save the colors of the current side
+    if (currentSide < 5) {
+      setCurrentSide(currentSide + 1);
+      resetForNextSide();
+    } else {
+      // All sides have been scanned
+      if (onCubeScanned) {
+        onCubeScanned([...cubeColors, overlayData.colors]);
+      }
+      // Optionally, reset the scanning process
+      resetScanningProcess();
+    }
+  };
+  const resetForNextSide = () => {
+    setDetectionEnabled(true);
+    setCubeDetected(false);
+    setOverlayData(null);
+    setShowPrompt(false);
+  };
+
+  const resetScanningProcess = () => {
+    setCurrentSide(0);
+    setCubeColors([]);
+    resetForNextSide();
+  };
+
+  const captureFrame = (ctx: CanvasRenderingContext2D) => {
+    if (canvasRef.current) {
+      const result = recognizeColorsFromGrid(ctx, canvasRef.current);
+      setOverlayData(result); // Set the overlay data to display
+      setDetectionEnabled(false);
+      setShowPrompt(true); // Show the prompt to the user
+    }
+  };
   const handleRetake = () => {
     if (detectionTimeoutRef.current) {
       clearTimeout(detectionTimeoutRef.current);
@@ -336,65 +463,27 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
           border: '1px solid black',
         }}
       />
-      <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: '10px' }}>
-        <div style={{ flex: '1 1 45%', margin: '5px' }}>
-          <p>Binary Image:</p>
-          <canvas
-            ref={binaryCanvasRef}
-            width={320}
-            height={320}
-            style={{
-              width: '100%',
-              border: '1px solid black',
-            }}
-          />
+      <OverlayInstructions currentSide={currentSide} />
+      {showPrompt && (
+        <div style={{ marginTop: '10px' }}>
+          <p>Side {currentSide + 1} captured. What would you like to do?</p>
+          <button onClick={handleRetake}>Retake</button>
+          <button onClick={handleNextSide}>Next Side</button>
         </div>
-        <div style={{ flex: '1 1 45%', margin: '5px' }}>
-          <p>Vertical Lines:</p>
-          <canvas
-            ref={verticalLinesCanvasRef}
-            width={320}
-            height={320}
-            style={{
-              width: '100%',
-              border: '1px solid black',
-            }}
-          />
-        </div>
-        <div style={{ flex: '1 1 45%', margin: '5px' }}>
-          <p>Horizontal Lines:</p>
-          <canvas
-            ref={horizontalLinesCanvasRef}
-            width={320}
-            height={320}
-            style={{
-              width: '100%',
-              border: '1px solid black',
-            }}
-          />
-        </div>
-        <div style={{ flex: '1 1 45%', margin: '5px' }}>
-          <p>Combined Lines:</p>
-          <canvas
-            ref={combinedLinesCanvasRef}
-            width={320}
-            height={320}
-            style={{
-              width: '100%',
-              border: '1px solid black',
-            }}
-          />
-        </div>
-      </div>
-      {cubeDetected && <div style={{ color: 'green' }}>Picture taken!</div>}
-      {!detectionEnabled && (
+      )}
+      {!detectionEnabled && !showPrompt && (
         <button onClick={handleRetake} style={{ marginTop: '10px' }}>
           Retake
         </button>
       )}
+      {showColorPalette && (
+        <ColorPalette onSelectColor={handleColorSelect} onClose={() => setShowColorPalette(false)} />
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: '10px' }}>
+        {/* Existing canvas elements for displaying intermediate results */}
+      </div>
     </div>
   );
 };
 
 export default RubiksCubeRecognizer;
-

@@ -93,8 +93,8 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
   const meanValue = values.reduce((sum, val) => sum + val, 0) / pixelCount;
 
   // Determine if the color is white based on saturation and value thresholds
-  const saturationThreshold = 60; // Adjust as needed (0-255)
-  const valueThreshold = 170; // Adjust as needed (0-255)
+  const saturationThreshold = 80; // Adjust as needed (0-255)
+  const valueThreshold = 160; // Adjust as needed (0-255)
 
   let colorName: string;
   let meanHue: number | null = null;
