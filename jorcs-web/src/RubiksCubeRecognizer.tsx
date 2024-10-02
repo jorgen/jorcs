@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  detectCubeAlignment,
-  recognizeColorsFromGrid,
-} from './cubeDetection.ts';
+import { detectCubeAlignment } from './cubeDetection';
+import { recognizeColorsFromGrid } from './colorRecognition';
+
 
 type RubiksCubeRecognizerProps = {
   onColorRecognized?: (colors: string[][]) => void;
@@ -13,15 +12,20 @@ declare const cv: any; // Declare OpenCV.js
 const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorRecognized }) => {
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const edgeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const lineCanvasRef = useRef<HTMLCanvasElement>(null);
+  const binaryCanvasRef = useRef<HTMLCanvasElement>(null);
+  const verticalLinesCanvasRef = useRef<HTMLCanvasElement>(null);
+  const horizontalLinesCanvasRef = useRef<HTMLCanvasElement>(null);
+  const combinedLinesCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameId = useRef<number>();
   const [cubeDetected, setCubeDetected] = useState(false);
   const cubeDetectionCounter = useRef(0);
   const cubeDetectionThreshold = 10; // Number of consecutive frames the cube must be detected
   const [opencvReady, setOpencvReady] = useState(false);
   const [detectionEnabled, setDetectionEnabled] = useState(true);
-  const [overlayColors, setOverlayColors] = useState<string[][] | null>(null);
+  const [overlayData, setOverlayData] = useState<{
+    colors: string[][];
+    hsvValues: { h: number; s: number; v: number }[][];
+  } | null>(null);
   const detectionTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -77,26 +81,48 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
           if (detectionEnabled) {
             const detectionResult = performDetection(ctx);
             if (detectionResult) {
-              const { gridLines, edgeImage, lineImage } = detectionResult;
+              const {
+                horizontalLines: detectedHorizontalLines,
+                verticalLines: detectedVerticalLines,
+                binaryImage,
+                verticalLinesImage,
+                horizontalLinesImage,
+                combinedImage,
+              } = detectionResult;
 
-              // Display edge detection output
-              if (edgeCanvasRef.current) {
-                cv.imshow(edgeCanvasRef.current, edgeImage);
+              // Display intermediate images
+              if (binaryCanvasRef.current) {
+                cv.imshow(binaryCanvasRef.current, binaryImage);
+              }
+              if (verticalLinesCanvasRef.current) {
+                cv.imshow(verticalLinesCanvasRef.current, verticalLinesImage);
+              }
+              if (horizontalLinesCanvasRef.current) {
+                cv.imshow(horizontalLinesCanvasRef.current, horizontalLinesImage);
+              }
+              if (combinedLinesCanvasRef.current) {
+                cv.imshow(combinedLinesCanvasRef.current, combinedImage);
               }
 
-              // Display the lines on the lineCanvas
-              if (lineCanvasRef.current) {
-                cv.imshow(lineCanvasRef.current, lineImage);
-              }
+              // Clean up images
+              binaryImage.delete();
+              verticalLinesImage.delete();
+              horizontalLinesImage.delete();
+              combinedImage.delete();
 
-              // Clean up edgeImage and lineImage
-              edgeImage.delete();
-              lineImage.delete();
+              // Now compare detected lines with overlay grid lines
+              const match = compareLinesWithOverlay(
+                detectedHorizontalLines,
+                detectedVerticalLines,
+                canvas,
+              );
 
-              // Move the cube detection logic here
-              if (gridLines >= 4) {
+              if (match) {
                 cubeDetectionCounter.current += 1;
-                if (cubeDetectionCounter.current >= cubeDetectionThreshold && !cubeDetected) {
+                if (
+                  cubeDetectionCounter.current >= cubeDetectionThreshold &&
+                  !cubeDetected
+                ) {
                   // Cube has been detected consistently, capture the frame
                   setCubeDetected(true);
                   captureFrame(ctx);
@@ -105,7 +131,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
                   detectionTimeoutRef.current = window.setTimeout(() => {
                     setDetectionEnabled(true);
                     setCubeDetected(false);
-                    setOverlayColors(null);
+                    setOverlayData(null);
                   }, 10000); // 10 seconds
                 }
               } else {
@@ -118,8 +144,8 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
           drawOverlay(ctx, cubeDetected ? 'green' : 'red');
 
           // Overlay recognized colors if available
-          if (overlayColors) {
-            drawOverlayColors(ctx, overlayColors);
+          if (overlayData) {
+            drawOverlayColors(ctx, overlayData);
           }
         }
       }
@@ -179,7 +205,10 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
       }
     };
 
-    const drawOverlayColors = (ctx: CanvasRenderingContext2D, colors: string[][]) => {
+    const drawOverlayColors = (ctx: CanvasRenderingContext2D, overlayData: {
+      colors: string[][];
+      hsvValues: { h: number; s: number; v: number }[][];
+    }) => {
       const canvas = canvasRef.current!;
       const gridSize = 3;
 
@@ -196,24 +225,78 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
 
       for (let row = 0; row < gridSize; row++) {
         for (let col = 0; col < gridSize; col++) {
-          const colorName = colors[row][col];
+          const colorName = overlayData.colors[row][col];
           ctx.fillStyle = colorName;
 
           const x = gridX + col * squareSize;
           const y = gridY + row * squareSize;
           ctx.fillRect(x, y, squareSize, squareSize);
+
+          // Overlay the HSV values
+          const hsv = overlayData.hsvValues[row][col];
+          ctx.globalAlpha = 1.0; // Reset transparency for text
+          ctx.fillStyle = 'black';
+          ctx.font = `${squareSize * 0.1}px Arial`;
+          ctx.fillText(
+            `H:${hsv.h.toFixed(0)} S:${hsv.s.toFixed(0)} V:${hsv.v.toFixed(0)}`,
+            x + 5,
+            y + squareSize / 2,
+          );
+          ctx.globalAlpha = 0.5; // Set transparency back
         }
       }
 
       ctx.globalAlpha = 1.0; // Reset transparency
     };
 
+    const compareLinesWithOverlay = (
+      detectedHorizontalLines: number[],
+      detectedVerticalLines: number[],
+      canvas: HTMLCanvasElement,
+    ): boolean => {
+      const gridSize = 3;
+      const gridLength = Math.min(canvas.width, canvas.height) * 0.5;
+
+      // Expected positions of the grid lines
+      const expectedVerticalLines = [];
+      for (let i = 0; i <= gridSize; i++) {
+        const x = i * (gridLength / gridSize);
+        expectedVerticalLines.push(x);
+      }
+
+      const expectedHorizontalLines = [];
+      for (let i = 0; i <= gridSize; i++) {
+        const y = i * (gridLength / gridSize);
+        expectedHorizontalLines.push(y);
+      }
+
+      const tolerance = gridLength * 0.05; // 5% of grid length
+
+      // Compare detected vertical lines with expected vertical lines
+      const verticalMatches = expectedVerticalLines.filter((expectedX) =>
+        detectedVerticalLines.some((detectedX) => Math.abs(detectedX - expectedX) < tolerance),
+      );
+
+      // Compare detected horizontal lines with expected horizontal lines
+      const horizontalMatches = expectedHorizontalLines.filter((expectedY) =>
+        detectedHorizontalLines.some((detectedY) => Math.abs(detectedY - expectedY) < tolerance),
+      );
+
+      // Decide whether there is a significant overlap
+      const verticalMatchRatio = verticalMatches.length / expectedVerticalLines.length;
+      const horizontalMatchRatio = horizontalMatches.length / expectedHorizontalLines.length;
+
+      const matchThreshold = 0.8; // 80% of lines should match
+
+      return verticalMatchRatio >= matchThreshold && horizontalMatchRatio >= matchThreshold;
+    };
+
     const captureFrame = (ctx: CanvasRenderingContext2D) => {
       if (canvasRef.current) {
-        const colors = recognizeColorsFromGrid(ctx, canvasRef.current);
-        setOverlayColors(colors); // Set the overlay colors to display
+        const result = recognizeColorsFromGrid(ctx, canvasRef.current);
+        setOverlayData(result); // Set the overlay data to display
         if (onColorRecognized) {
-          onColorRecognized(colors);
+          onColorRecognized(result.colors);
         }
       }
     };
@@ -231,7 +314,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
         clearTimeout(detectionTimeoutRef.current);
       }
     };
-  }, [cubeDetected, opencvReady, detectionEnabled, overlayColors]);
+  }, [cubeDetected, opencvReady, detectionEnabled, overlayData]);
 
   const handleRetake = () => {
     if (detectionTimeoutRef.current) {
@@ -239,7 +322,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
     }
     setDetectionEnabled(true);
     setCubeDetected(false);
-    setOverlayColors(null);
+    setOverlayData(null);
   };
 
   return (
@@ -253,11 +336,11 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
           border: '1px solid black',
         }}
       />
-      <div style={{ display: 'flex', marginTop: '10px' }}>
-        <div style={{ flex: 1 }}>
-          <p>Edge Detection Output:</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: '10px' }}>
+        <div style={{ flex: '1 1 45%', margin: '5px' }}>
+          <p>Binary Image:</p>
           <canvas
-            ref={edgeCanvasRef}
+            ref={binaryCanvasRef}
             width={320}
             height={320}
             style={{
@@ -266,10 +349,34 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
             }}
           />
         </div>
-        <div style={{ flex: 1, marginLeft: '10px' }}>
-          <p>Detected Lines:</p>
+        <div style={{ flex: '1 1 45%', margin: '5px' }}>
+          <p>Vertical Lines:</p>
           <canvas
-            ref={lineCanvasRef}
+            ref={verticalLinesCanvasRef}
+            width={320}
+            height={320}
+            style={{
+              width: '100%',
+              border: '1px solid black',
+            }}
+          />
+        </div>
+        <div style={{ flex: '1 1 45%', margin: '5px' }}>
+          <p>Horizontal Lines:</p>
+          <canvas
+            ref={horizontalLinesCanvasRef}
+            width={320}
+            height={320}
+            style={{
+              width: '100%',
+              border: '1px solid black',
+            }}
+          />
+        </div>
+        <div style={{ flex: '1 1 45%', margin: '5px' }}>
+          <p>Combined Lines:</p>
+          <canvas
+            ref={combinedLinesCanvasRef}
             width={320}
             height={320}
             style={{
@@ -290,3 +397,4 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({ onColorReco
 };
 
 export default RubiksCubeRecognizer;
+
