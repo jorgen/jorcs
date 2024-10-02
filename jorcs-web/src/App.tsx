@@ -2,7 +2,7 @@ import { useState } from 'react';
 import './App.css';
 
 
-import RubiksCubeRecognizer from './cube_grabber.tsx';
+import RubiksCubeRecognizer from './RubiksCubeRecognizer.tsx';
 
 function App() {
   const [showRecognizer, setShowRecognizer] = useState(false);
