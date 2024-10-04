@@ -33,6 +33,7 @@ export default tseslint.config(
       ...react.configs.recommended.rules,
       ...react.configs['jsx-runtime'].rules,
       'prettier/prettier': 'error',
+      'brace-style': ['error', 'stroustrup', { 'allowSingleLine': true }],
     },
   },
 );

@@ -9,13 +9,14 @@ type HSV = {
 type RecognizedGrid = {
   colors: string[][];
   hsvValues: HSV[][];
+  subImages: string[][];
 };
 
 /**
  * Recognizes colors from the grid in the canvas context.
  * @param ctx - The canvas rendering context.
  * @param canvas - The canvas element.
- * @returns An object containing the color names and mean HSV values.
+ * @returns An object containing the color names, mean HSV values, and sub-images.
  */
 export function recognizeColorsFromGrid(
   ctx: CanvasRenderingContext2D,
@@ -23,6 +24,7 @@ export function recognizeColorsFromGrid(
 ): RecognizedGrid {
   const gridColors: string[][] = [];
   const gridHsvValues: HSV[][] = [];
+  const subImages: string[][] = [];
   const gridSize = 3;
 
   // Determine the size of the square grid (50% of the smaller canvas dimension)
@@ -37,6 +39,7 @@ export function recognizeColorsFromGrid(
   for (let row = 0; row < gridSize; row++) {
     const rowColors: string[] = [];
     const rowHsvValues: HSV[] = [];
+    const rowSubImages: string[] = [];
     for (let col = 0; col < gridSize; col++) {
       const x = gridX + col * squareSize;
       const y = gridY + row * squareSize;
@@ -44,11 +47,21 @@ export function recognizeColorsFromGrid(
       const { colorName, meanHsv } = getDominantColor(imageData);
       rowColors.push(colorName);
       rowHsvValues.push(meanHsv);
+
+      // Convert the imageData to a data URL for display
+      const subCanvas = document.createElement('canvas');
+      subCanvas.width = squareSize;
+      subCanvas.height = squareSize;
+      const subCtx = subCanvas.getContext('2d');
+      subCtx!.putImageData(imageData, 0, 0);
+      const dataURL = subCanvas.toDataURL();
+      rowSubImages.push(dataURL);
     }
     gridColors.push(rowColors);
     gridHsvValues.push(rowHsvValues);
+    subImages.push(rowSubImages);
   }
-  return { colors: gridColors, hsvValues: gridHsvValues };
+  return { colors: gridColors, hsvValues: gridHsvValues, subImages };
 }
 
 /**
@@ -62,8 +75,8 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
 
   // Convert to HSV
   const hsv = new cv.Mat();
-  cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-  cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+  //cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+  cv.cvtColor(src, hsv, cv.COLOR_RGB2HSV);
 
   // Split channels
   const hsvChannels = new cv.MatVector();
@@ -92,14 +105,10 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
   const meanSaturation = saturations.reduce((sum, val) => sum + val, 0) / pixelCount;
   const meanValue = values.reduce((sum, val) => sum + val, 0) / pixelCount;
 
-  // Determine if the color is white based on saturation and value thresholds
-  const saturationThreshold = 80; // Adjust as needed (0-255)
-  const valueThreshold = 160; // Adjust as needed (0-255)
-
   let colorName: string;
   let meanHue: number | null = null;
 
-  if (meanSaturation < saturationThreshold && meanValue > valueThreshold) {
+  if (detectWhite(meanSaturation, meanValue)) {
     colorName = 'white';
   } else {
     // Calculate histogram for Hue channel
@@ -163,11 +172,13 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
   return { colorName, meanHsv };
 }
 
-/**
- * Quantizes a hue value to the nearest predefined color bin.
- * @param hue - The hue value to quantize.
- * @returns The name of the closest color bin.
- */
+function detectWhite(saturation: number, value: number): boolean {
+  const saturationThreshold = 110; // Adjust as needed (0-255)
+  const valueThreshold = 150; // Adjust as needed (0-255)
+
+  return saturation < 105 && value > 150;
+}
+
 function quantizeHue(hue: number): string {
   // Define hue ranges for cube colors
   // Adjust these ranges based on experimentation
@@ -175,9 +186,9 @@ function quantizeHue(hue: number): string {
     return 'red';
   } else if (hue >= 0 && hue < 25) {
     return 'orange';
-  } else if (hue >= 25 && hue < 40) {
+  } else if (hue >= 25 && hue < 55) {
     return 'yellow';
-  } else if (hue >= 40 && hue < 95) {
+  } else if (hue >= 55 && hue < 95) {
     return 'green';
   } else if (hue >= 95 && hue < 110) {
     return 'blue';
