@@ -72,125 +72,82 @@ export function recognizeColorsFromGrid(
 function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: HSV } {
   // Convert ImageData to cv.Mat
   const src = cv.matFromImageData(imageData);
-
-  // Convert to HSV
-  const hsv = new cv.Mat();
-  //cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-  cv.cvtColor(src, hsv, cv.COLOR_RGB2HSV);
-
-  // Split channels
+  const the_hsv_mat = new cv.Mat();
+  cv.cvtColor(src, the_hsv_mat, cv.COLOR_RGB2HSV);
   const hsvChannels = new cv.MatVector();
-  cv.split(hsv, hsvChannels);
-  const hChannel = hsvChannels.get(0);
-  const sChannel = hsvChannels.get(1);
-  const vChannel = hsvChannels.get(2);
+  cv.split(the_hsv_mat, hsvChannels);
+  const histSize = [[180], [256], [256]]; // Hue values range from 0 to 179 in OpenCV
+  const ranges = [[0, 180], [0, 256], [0, 256]];
+  const hists = [new cv.Mat(), new cv.Mat(), new cv.Mat()];
+  const masks = [new cv.Mat(), new cv.Mat(), new cv.Mat()];
 
-  // Collect hue, saturation, and value data
-  const hData = hChannel.data;
-  const sData = sChannel.data;
-  const vData = vChannel.data;
+  cv.calcHist(hsvChannels, [0] , masks[0], hists[0], histSize[0], ranges[0], false);
+  cv.calcHist(hsvChannels, [1] , masks[1], hists[1], histSize[1], ranges[1], false);
+  cv.calcHist(hsvChannels, [2] , masks[2], hists[2], histSize[2], ranges[2], false);
 
-  const pixelCount = hData.length;
-  const hues = [];
-  const saturations = [];
-  const values = [];
-
-  for (let i = 0; i < pixelCount; i++) {
-    hues.push(hData[i]);
-    saturations.push(sData[i]);
-    values.push(vData[i]);
+  let highestValuesHsv = [0, 0, 0];
+  let highestIndeciesHsv = [0,0,0];
+  for (let j = 0; j < 3; j++) {
+    for (let i = 0; i < histSize[j][0]; i++) {
+      if (hists[j].data32F[i] > highestValuesHsv[j]) {
+        highestValuesHsv[j] = hists[j].data32F[i];
+        highestIndeciesHsv[j] = i;
+      }
+    }
   }
 
-  // Calculate mean saturation and value
-  const meanSaturation = saturations.reduce((sum, val) => sum + val, 0) / pixelCount;
-  const meanValue = values.reduce((sum, val) => sum + val, 0) / pixelCount;
+  the_hsv_mat.delete();
+  src.delete();
+  hsvChannels.delete();
+  // Clean up histogram resources
+  for (const mask of masks)
+    mask.delete();
+  for (const hist of hists)
+    hist.delete();
+  // Clean up
+
 
   let colorName: string;
-  let meanHue: number | null = null;
 
-  if (detectWhite(meanSaturation, meanValue)) {
+
+  if (detectWhite(highestIndeciesHsv[1], highestIndeciesHsv[2])) {
     colorName = 'white';
   } else {
-    // Calculate histogram for Hue channel
-    const histSize = [180]; // Hue values range from 0 to 179 in OpenCV
-    const ranges = [0, 180];
-    const hist = new cv.Mat();
-    const mask = new cv.Mat();
 
-    // Prepare images argument as a cv.MatVector
-    const hChannelVec = new cv.MatVector();
-    hChannelVec.push_back(hChannel);
+    colorName = quantizeHue(highestIndeciesHsv[0]);
 
-    cv.calcHist(hChannelVec, [0], mask, hist, histSize, ranges, false);
-
-    // Get histogram data
-    const histData = [];
-    for (let i = 0; i < histSize[0]; i++) {
-      histData.push(hist.data32F[i]);
-    }
-
-    // Remove outliers by thresholding
-    const maxVal = Math.max(...histData);
-    const thresholdValue = 0.05 * maxVal; // Adjust as needed
-    const filteredHistData = histData.map((value) => (value >= thresholdValue ? value : 0));
-
-    // Get mean of the top 50% colors
-    const sortedIndices = filteredHistData
-      .map((value, index) => ({ value, index }))
-      .sort((a, b) => b.value - a.value);
-
-    const top50Indices = sortedIndices.slice(0, Math.ceil(sortedIndices.length / 2));
-    const weightedSum = top50Indices.reduce((sum, item) => sum + item.index * item.value, 0);
-    const sumValues = top50Indices.reduce((sum, item) => sum + item.value, 0);
-
-    meanHue = weightedSum / sumValues;
-
-    // Determine the color based on mean Hue
-    colorName = quantizeHue(meanHue);
-
-    // Clean up histogram resources
-    hChannelVec.delete();
-    mask.delete();
-    hist.delete();
   }
-
-  // Clean up
-  src.delete();
-  hsv.delete();
-  hsvChannels.delete();
-  hChannel.delete();
-  sChannel.delete();
-  vChannel.delete();
 
   // Return color name and mean HSV values
   const meanHsv: HSV = {
-    h: meanHue !== null ? meanHue : 0,
-    s: meanSaturation,
-    v: meanValue,
+    h: highestIndeciesHsv[0],
+    s: highestIndeciesHsv[1],
+    v: highestIndeciesHsv[2]
   };
 
   return { colorName, meanHsv };
 }
 
-function detectWhite(saturation: number, value: number): boolean {
-  const saturationThreshold = 110; // Adjust as needed (0-255)
-  const valueThreshold = 150; // Adjust as needed (0-255)
+function detectWhite(saturation: number, value: number): boolean
+{
+  const saturationThreshold = 110;
+  const valueThreshold = 150;
 
-  return saturation < 105 && value > 150;
+  return saturation < saturationThreshold && value > valueThreshold;
 }
 
 function quantizeHue(hue: number): string {
   // Define hue ranges for cube colors
   // Adjust these ranges based on experimentation
-  if ((hue >= 110 && hue <= 180)) {
+  if ((hue >= 115 || hue < 3)) {
     return 'red';
-  } else if (hue >= 0 && hue < 25) {
+  } else if (hue >= 3 && hue < 25) {
     return 'orange';
   } else if (hue >= 25 && hue < 55) {
     return 'yellow';
   } else if (hue >= 55 && hue < 95) {
     return 'green';
-  } else if (hue >= 95 && hue < 110) {
+  } else if (hue >= 95 && hue < 115) {
     return 'blue';
   } else {
     return 'unknown';
