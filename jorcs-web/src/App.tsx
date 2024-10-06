@@ -3,6 +3,7 @@ import './App.css';
 
 
 import RubiksCubeRecognizer from './RubiksCubeRecognizer.tsx';
+import RubiksCubeApp from './RubiksCubeApp.tsx';
 
 function App() {
   const [showRecognizer, setShowRecognizer] = useState(false);
@@ -23,7 +24,7 @@ function App() {
 
       {showRecognizer && (
         <div style={{ marginTop: '20px' }}>
-          <RubiksCubeRecognizer onColorRecognized={(colors) => console.log(colors)} />
+          <RubiksCubeApp />
         </div>
       )}
 

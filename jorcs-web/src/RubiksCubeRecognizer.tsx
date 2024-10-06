@@ -4,6 +4,7 @@ import { recognizeColorsFromGrid } from './colorRecognition';
 import OverlayInstructions from './OverlayInstructions';
 import ColorPalette from './ColorPalette';
 
+
 type GridSquare = {
   row: number;
   col: number;
@@ -13,13 +14,15 @@ type GridSquare = {
 };
 
 type RubiksCubeRecognizerProps = {
-  onCubeScanned?: (cubeColors: string[][][]) => void;
+  currentSide: number;
+  onSideCaptured: (sideColors: string[][]) => void;
 };
 
 declare const cv: any; // Declare OpenCV.js
 
 const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
-                                                                     onCubeScanned,
+                                                                     currentSide,
+                                                                     onSideCaptured,
                                                                    }) => {
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -37,8 +40,6 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   const [detectionEnabled, setDetectionEnabled] = useState(true);
 
   // New states for side scanning
-  const [currentSide, setCurrentSide] = useState(0); // Side index from 0 to 5
-  const [cubeColors, setCubeColors] = useState<string[][][]>([]); // Array to store colors of each side
   const [overlayData, setOverlayData] = useState<{
     colors: string[][];
     hsvValues: { h: number; s: number; v: number }[][];
@@ -74,8 +75,6 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
       try {
         const constraints = {
           video: {
-            frameRate: { ideal: 30 },
-            // Advanced constraints for controlling camera settings
             advanced: [
               { whiteBalanceMode: 'manual' }, // Disable automatic white balance
               { exposureMode: 'manual' }, // Disable automatic exposure
@@ -459,30 +458,14 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   const handleNextSide = () => {
     if (!overlayData) return;
 
-    setCubeColors([...cubeColors, overlayData.colors]); // Save the colors of the current side
-    if (currentSide < 5) {
-      setCurrentSide(currentSide + 1);
-      resetForNextSide();
-    } else {
-      // All sides have been scanned
-      if (onCubeScanned) {
-        onCubeScanned([...cubeColors, overlayData.colors]);
-      }
-      // Optionally, reset the scanning process
-      resetScanningProcess();
-    }
+    onSideCaptured(overlayData.colors);
+    resetForNextSide();
   };
   const resetForNextSide = () => {
     setDetectionEnabled(true);
     setCubeDetected(false);
     setOverlayData(null);
     setShowPrompt(false);
-  };
-
-  const resetScanningProcess = () => {
-    setCurrentSide(0);
-    setCubeColors([]);
-    resetForNextSide();
   };
 
   const handleRetake = () => {
@@ -552,7 +535,6 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
           </div>
         </div>
       )}
-      {/* Existing canvas elements for displaying intermediate results */}
     </div>
   );
 };

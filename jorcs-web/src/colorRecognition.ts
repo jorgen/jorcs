@@ -130,7 +130,7 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
 
 function detectWhite(saturation: number, value: number): boolean
 {
-  const saturationThreshold = 110;
+  const saturationThreshold = 65;
   const valueThreshold = 150;
 
   return saturation < saturationThreshold && value > valueThreshold;
