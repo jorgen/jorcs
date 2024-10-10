@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { detectCubeAlignment } from './cubeDetection';
 import { recognizeColorsFromGrid } from './colorRecognition';
-import ColorPalette from './ColorPalette';
+import ColorPicker from './ColorPicker.tsx';
 
 type GridSquare = {
   row: number;
@@ -290,11 +290,9 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
 
-    const adjustedGridX = (canvas.width - gridLength) / 2;
-
     // Draw vertical lines
     for (let i = 0; i <= gridSize; i++) {
-      const x = adjustedGridX + i * squareSize;
+      const x = gridX + i * squareSize;
       ctx.beginPath();
       ctx.moveTo(x, gridY);
       ctx.lineTo(x, gridY + gridLength);
@@ -305,8 +303,8 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     for (let i = 0; i <= gridSize; i++) {
       const y = gridY + i * squareSize;
       ctx.beginPath();
-      ctx.moveTo(adjustedGridX, y);
-      ctx.lineTo(adjustedGridX + gridLength, y);
+      ctx.moveTo(gridX, y);
+      ctx.lineTo(gridX + gridLength, y);
       ctx.stroke();
     }
 
@@ -337,14 +335,13 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
 
-    const adjustedGridX = (canvas.width - gridLength) / 2;
 
     for (let row = 0; row < gridSize; row++) {
       for (let col = 0; col < gridSize; col++) {
         const colorName = overlayData.colors[row][col];
         ctx.fillStyle = colorName;
 
-        const x = adjustedGridX + col * squareSize;
+        const x = gridX + col * squareSize;
         const y = gridY + row * squareSize;
         ctx.fillRect(x, y, squareSize, squareSize);
 
@@ -442,7 +439,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: '640px' }}>
+    <div style={{ position: 'relative', width: '100%' }}>
       {!opencvReady ? (
         <p>Loading OpenCV...</p>
       ) : (
@@ -457,7 +454,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
         />
       )}
       {showColorPalette && (
-        <ColorPalette
+        <ColorPicker
           onSelectColor={handleColorSelect}
           onClose={() => {
             setShowColorPalette(false);

@@ -27,15 +27,24 @@ const RubiksCubeApp: React.FC = () => {
   const [showPrompt, setShowPrompt] = useState(false);
   const [showDebugPane, setShowDebugPane] = useState(true);
 
-  const handleOverlayDataCaptured = (data: OverlayData) => {
+  function handleSetOverlayData(data: OverlayData) {
     setOverlayData(data);
+    setCubeColors((prevColors) => {
+      const newColors = [...prevColors];
+      newColors[currentSide] = data.colors;
+      return newColors;
+    });
+  }
+
+  const handleOverlayDataCaptured = (data: OverlayData) => {
+    handleSetOverlayData(data);
     setShowPrompt(true);
     setDetectionEnabled(false);
   };
 
   // Define the handleOverlayDataUpdated function
   const handleOverlayDataUpdated = (updatedData: OverlayData) => {
-    setOverlayData(updatedData);
+    handleSetOverlayData(updatedData);
   };
 
   const handleNextSide = () => {

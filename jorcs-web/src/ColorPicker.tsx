@@ -7,13 +7,14 @@ type ColorPaletteProps = {
 
 const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'white'];
 
-const ColorPalette: React.FC<ColorPaletteProps> = ({ onSelectColor, onClose }) => {
+const ColorPicker: React.FC<ColorPaletteProps> = ({ onSelectColor, onClose }) => {
   return (
     <div
       style={{
         position: 'absolute',
         top: '50%', // Adjust position as needed
         left: '50%',
+        width: '50%',
         transform: 'translate(-50%, -50%)',
         backgroundColor: 'rgba(255, 255, 255, 0.9)',
         padding: '10px',
@@ -48,4 +49,4 @@ const ColorPalette: React.FC<ColorPaletteProps> = ({ onSelectColor, onClose }) =
   );
 };
 
-export default ColorPalette;
+export default ColorPicker;
