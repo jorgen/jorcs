@@ -36,6 +36,8 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
     InteractionModes.ORBIT,
   );
 
+  console.log('Viewer with current side: ', currentSide);
+
   // References to Three.js objects
   const sceneRef = useRef<THREE.Scene>();
   const cameraRef = useRef<THREE.PerspectiveCamera>();
@@ -94,6 +96,7 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
             });
             setShowColorPicker(true);
           } else if (interactionMode === InteractionModes.SIDE_SELECTION) {
+            console.log('Setting current side to: ', intersectedFace);
             setCurrentSide(intersectedFace);
           }
         }
@@ -279,12 +282,13 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
 
       // Define target positions for each side
       const positions = [
-        new THREE.Vector3(0, 0, 5),   // Front face (side 0)
         new THREE.Vector3(5, 0, 0),   // Right face (side 1)
-        new THREE.Vector3(0, 0, -5),  // Back face (side 2)
         new THREE.Vector3(-5, 0, 0),  // Left face (side 3)
+
         new THREE.Vector3(0, 5, 0),   // Top face (side 4)
         new THREE.Vector3(0, -5, 0),  // Bottom face (side 5)
+        new THREE.Vector3(0, 0, 5),   // Front face (side 0)
+        new THREE.Vector3(0, 0, -5),  // Back face (side 2)
       ];
 
       const targetPosition = positions[currentSide];
@@ -358,7 +362,7 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
     <div style={{ position: 'relative' }}>
       {/* Interaction Mode Buttons */}
       <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 100 }}>
-        {Object.entries(InteractionModes).map(([key, mode]) => (
+        {Object.entries(InteractionModes).map(([, mode]) => (
           <button
             key={mode}
             onClick={() => setInteractionMode(mode as InteractionMode)}

@@ -20,7 +20,7 @@ type OverlayData = {
 type RubiksCubeRecognizerProps = {
   currentSide: number;
   detectionEnabled: boolean;
-  overlayData: OverlayData | null;
+  overlayData: OverlayData;
   onOverlayDataCaptured: (overlayData: OverlayData) => void;
   onOverlayDataUpdated: (overlayData: OverlayData) => void;
 };
@@ -40,7 +40,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
 
   const [cubeDetected, setCubeDetected] = useState(false);
   const cubeDetectionCounter = useRef(0);
-  const cubeDetectionThreshold = 10; // Number of consecutive frames the cube must be detected
+  const cubeDetectionThreshold = 1; // Number of consecutive frames the cube must be detected
   const [opencvReady, setOpencvReady] = useState(false);
 
   // State variables for grid squares and color palette
@@ -106,7 +106,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
 
           // Cube detection logic
           if (detectionEnabled) {
-            const detectionResult = performDetection(ctx);
+            const detectionResult = performDetection();
             if (detectionResult) {
               const {
                 horizontalLines: detectedHorizontalLines,
@@ -133,16 +133,14 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
               } else {
                 cubeDetectionCounter.current = 0;
               }
+              detectionResult.destroy();
             }
           }
 
           // Draw the overlay grid with visual feedback (adjusted for flipped canvas)
           drawOverlay(ctx, cubeDetected ? 'green' : 'red');
 
-          // If overlayData is available, draw the recognized colors
-          if (overlayData) {
-            drawOverlayColors(ctx, overlayData);
-          }
+          drawOverlayColors(ctx, overlayData);
 
           // Draw side overlay (unaffected by flip)
           drawSideOverlay(ctx, currentSide);
@@ -217,9 +215,8 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   }, [gridSquares, overlayData]);
 
   const handleColorSelect = (color: string) => {
-    if (!overlayData || !selectedSquare) return;
+    if (!selectedSquare) return;
 
-    // Update the color in the overlayData
     const updatedOverlayData = { ...overlayData };
     updatedOverlayData.colors = overlayData.colors.map((row, rowIndex) =>
       row.map((colColor, colIndex) => {
@@ -238,7 +235,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     setSelectedSquare(null);
   };
 
-  const performDetection = (ctx: CanvasRenderingContext2D) => {
+  const performDetection = () => {
     const canvas = canvasRef.current!;
     // Determine the size of the square grid (50% of the smaller canvas dimension)
     const gridLength = Math.min(canvas.width, canvas.height) * 0.5;
@@ -263,8 +260,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
       );
 
       // Call detectCubeAlignment with imageData
-      const detectionResult = detectCubeAlignment(imageData, gridLength);
-      return detectionResult;
+      return detectCubeAlignment(imageData, gridLength);
     }
     return null;
   };

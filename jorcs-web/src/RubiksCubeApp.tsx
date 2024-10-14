@@ -8,6 +8,27 @@ type OverlayData = {
   subImages: string[][];
 };
 
+function createDefaultOverlayData(): OverlayData {
+  const defaultColor = 'grey';
+  const defaultHSV = { h: 0, s: 0, v: 50 }; // Grey in HSV
+  const rows = 3;
+  const cols = 3;
+
+  const colors = Array.from({ length: rows }, () =>
+    Array(cols).fill(defaultColor),
+  );
+  const hsvValues = Array.from({ length: rows }, () =>
+    Array(cols).fill({ ...defaultHSV }),
+  );
+  const subImages = Array.from({ length: rows }, () => Array(cols).fill(''));
+
+  return {
+    colors,
+    hsvValues,
+    subImages,
+  };
+}
+
 const RubiksCubeApp: React.FC = () => {
   let initialCubeColors: string[][][] = [];
   for (let i = 0; i < 6; i++) {
@@ -22,10 +43,9 @@ const RubiksCubeApp: React.FC = () => {
   const [cubeColors, setCubeColors] = useState<string[][][]>(initialCubeColors);
   const [currentSide, setCurrentSide] = useState(0);
 
-  const [overlayData, setOverlayData] = useState<OverlayData | null>(null);
+  const [overlayData, setOverlayData] = useState<OverlayData>(createDefaultOverlayData());
   const [detectionEnabled, setDetectionEnabled] = useState(true);
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [showDebugPane, setShowDebugPane] = useState(true);
+  const [showDebugPane] = useState(true);
 
   function handleSetOverlayData(data: OverlayData) {
     setOverlayData(data);
@@ -38,7 +58,6 @@ const RubiksCubeApp: React.FC = () => {
 
   const handleOverlayDataCaptured = (data: OverlayData) => {
     handleSetOverlayData(data);
-    setShowPrompt(true);
     setDetectionEnabled(false);
   };
 
@@ -47,30 +66,25 @@ const RubiksCubeApp: React.FC = () => {
     handleSetOverlayData(updatedData);
   };
 
-  const handleNextSide = () => {
-    if (!overlayData) return;
-
+  const setNewSide = (side: number) => {
     setCubeColors((prevColors) => {
       const newColors = [...prevColors];
       newColors[currentSide] = overlayData.colors;
       return newColors;
     });
 
-    if (currentSide < 5) {
-      setCurrentSide(currentSide + 1);
-    } else {
-      console.log('All sides scanned');
-    }
+    setCurrentSide(side);
 
-    // Reset for next side
-    setOverlayData(null);
-    setShowPrompt(false);
+    setOverlayData(createDefaultOverlayData());
     setDetectionEnabled(true);
+
+  };
+
+  const handleNextSide = () => {
+    setNewSide((currentSide + 1) % 6);
   };
 
   const handleRetake = () => {
-    setOverlayData(null);
-    setShowPrompt(false);
     setDetectionEnabled(true);
   };
 
@@ -90,19 +104,18 @@ const RubiksCubeApp: React.FC = () => {
           onOverlayDataCaptured={handleOverlayDataCaptured}
           onOverlayDataUpdated={handleOverlayDataUpdated}
         />
-        {showPrompt && (
-          <div style={{ marginTop: '10px' }}>
-            <p>Side {currentSide + 1} captured. What would you like to do?</p>
-            <button onClick={handleRetake}>Retake</button>
-            <button onClick={handleNextSide}>Next Side</button>
-          </div>
-        )}
+        <div style={{ marginTop: '10px' }}>
+          <p>Side {currentSide + 1} captured. What would you like to do?</p>
+          <button onClick={handleRetake}>Retake</button>
+          <button onClick={handleNextSide}>Next Side</button>
+        </div>
       </div>
       <div style={{ flex: '1 1 300px' }}>
         <RubiksCubeViewer
           cubeColors={cubeColors}
           setCubeColors={setCubeColors}
           currentSide={currentSide}
+          setCurrentSide={setNewSide}
         />
       </div>
       {showDebugPane && overlayData && (

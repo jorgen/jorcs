@@ -1,22 +1,41 @@
 declare const cv: any;
 
-/**
- * Performs cube alignment detection using morphological operations and extracts lines.
- * @param imageData - Image data of the region of interest.
- * @param gridLength - Length of the grid.
- * @returns An object containing the detected lines and intermediate images.
- */
-export function detectCubeAlignment(
-  imageData: ImageData,
-  gridLength: number,
-): {
+class CubeAlignmentResult {
   horizontalLines: number[];
   verticalLines: number[];
   binaryImage: any;
   verticalLinesImage: any;
   horizontalLinesImage: any;
   combinedImage: any;
-} {
+
+  constructor(
+    horizontalLines: number[],
+    verticalLines: number[],
+    binaryImage: any,
+    verticalLinesImage: any,
+    horizontalLinesImage: any,
+    combinedImage: any,
+  ) {
+    this.horizontalLines = horizontalLines;
+    this.verticalLines = verticalLines;
+    this.binaryImage = binaryImage;
+    this.verticalLinesImage = verticalLinesImage;
+    this.horizontalLinesImage = horizontalLinesImage;
+    this.combinedImage = combinedImage;
+  }
+
+  destroy() {
+    this.binaryImage.delete();
+    this.verticalLinesImage.delete();
+    this.horizontalLinesImage.delete();
+    this.combinedImage.delete();
+  }
+}
+
+export function detectCubeAlignment(
+  imageData: ImageData,
+  gridLength: number,
+): CubeAlignmentResult {
   const src = cv.matFromImageData(imageData);
 
   // Convert to grayscale
@@ -80,14 +99,14 @@ export function detectCubeAlignment(
   combinedLines.delete();
 
   // Return the processed images and detected lines
-  return {
-    horizontalLines: detectedHorizontalLines,
-    verticalLines: detectedVerticalLines,
+  return new CubeAlignmentResult(
+    detectedHorizontalLines,
+    detectedVerticalLines,
     binaryImage,
     verticalLinesImage,
     horizontalLinesImage,
     combinedImage,
-  };
+  );
 }
 
 /**
