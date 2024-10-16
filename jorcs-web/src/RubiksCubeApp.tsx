@@ -89,6 +89,11 @@ const RubiksCubeApp: React.FC = () => {
 
   };
 
+  const handlePreviousSide = () => {
+    const previousIndex = (currentIndex + 5) % 6;
+    setNewSide(sideOrder[previousIndex]);
+  };
+
   const handleNextSide = () => {
     const nextIndex = (currentIndex + 1) % 6;
     setNewSide(sideOrder[nextIndex]);
@@ -116,6 +121,7 @@ const RubiksCubeApp: React.FC = () => {
         />
         <div style={{ marginTop: '10px' }}>
           <p>Side {currentSide + 1} captured. What would you like to do?</p>
+          <button onClick={handlePreviousSide}>Previous Side</button>
           <button onClick={handleRetake}>Retake</button>
           <button onClick={handleNextSide}>Next Side</button>
         </div>

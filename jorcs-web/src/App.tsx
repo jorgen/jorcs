@@ -17,7 +17,7 @@ function App() {
           {showRecognizer ? 'Close Rubik\'s Cube Recognizer' : 'Open Rubik\'s Cube Recognizer'}
         </button>
       </div>
-
+      {!showRecognizer && (<img src="jorcs.webp" alt="Jørgens Own Rubik's Cube Solver" height="500" />)}
       {showRecognizer && (
         <div style={{ marginTop: '20px' }}>
           <RubiksCubeApp />
