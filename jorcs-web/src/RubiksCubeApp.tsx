@@ -29,6 +29,8 @@ function createDefaultOverlayData(): OverlayData {
   };
 }
 
+const sideOrder = [0, 5, 1, 4, 2, 3];
+
 const RubiksCubeApp: React.FC = () => {
   let initialCubeColors: string[][][] = [];
   for (let i = 0; i < 6; i++) {
@@ -42,6 +44,7 @@ const RubiksCubeApp: React.FC = () => {
   }
   const [cubeColors, setCubeColors] = useState<string[][][]>(initialCubeColors);
   const [currentSide, setCurrentSide] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   const [overlayData, setOverlayData] = useState<OverlayData>(createDefaultOverlayData());
   const [detectionEnabled, setDetectionEnabled] = useState(true);
@@ -74,6 +77,12 @@ const RubiksCubeApp: React.FC = () => {
     });
 
     setCurrentSide(side);
+    for (let i = 0; i < 6; i++) {
+      if (sideOrder[i] === side) {
+        setCurrentIndex(i);
+        break;
+      }
+    }
 
     setOverlayData(createDefaultOverlayData());
     setDetectionEnabled(true);
@@ -81,7 +90,8 @@ const RubiksCubeApp: React.FC = () => {
   };
 
   const handleNextSide = () => {
-    setNewSide((currentSide + 1) % 6);
+    const nextIndex = (currentIndex + 1) % 6;
+    setNewSide(sideOrder[nextIndex]);
   };
 
   const handleRetake = () => {

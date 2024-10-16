@@ -55,7 +55,70 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
     SIDE_SELECTION: '⤵️', // Bold arrow icon
   };
 
-// Memoize handleClick
+  const animateCameraToSide = useCallback((sideIndex: number) => {
+    if (cameraRef.current && controlsRef.current) {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      const duration = 1000; // Animation duration in milliseconds
+      const startPosition = camera.position.clone();
+
+      // Define target positions for each side
+      const positions = [
+        new THREE.Vector3(5, 0, 0),   // Right face (side 0)
+        new THREE.Vector3(-5, 0, 0),  // Left face (side 1)
+        new THREE.Vector3(0, 5, 0),   // Top face (side 2)
+        new THREE.Vector3(0, -5, 0),  // Bottom face (side 3)
+        new THREE.Vector3(0, 0, 5),   // Front face (side 4)
+        new THREE.Vector3(0, 0, -5),  // Back face (side 5)
+      ];
+
+      const targetPosition = positions[sideIndex];
+      const startTime = performance.now();
+
+      // Convert positions to spherical coordinates
+      const startSpherical = new THREE.Spherical().setFromVector3(startPosition);
+      const endSpherical = new THREE.Spherical().setFromVector3(targetPosition);
+
+      // Adjust angles to ensure shortest path
+      if (Math.abs(endSpherical.theta - startSpherical.theta) > Math.PI) {
+        if (endSpherical.theta > startSpherical.theta) {
+          endSpherical.theta -= 2 * Math.PI;
+        } else {
+          endSpherical.theta += 2 * Math.PI;
+        }
+      }
+
+      const animateCamera = (time: number) => {
+        const elapsed = time - startTime;
+        const t = Math.min(elapsed / duration, 1); // Normalized time (0 to 1)
+
+        // Interpolate spherical coordinates
+        const currentSpherical = new THREE.Spherical(
+          THREE.MathUtils.lerp(startSpherical.radius, endSpherical.radius, t),
+          THREE.MathUtils.lerp(startSpherical.phi, endSpherical.phi, t),
+          THREE.MathUtils.lerp(startSpherical.theta, endSpherical.theta, t),
+        );
+
+        // Update camera position
+        camera.position.setFromSpherical(currentSpherical);
+        camera.lookAt(new THREE.Vector3(0, 0, 0)); // Ensure camera is looking at the cube
+
+        // Update controls
+        controls.update();
+
+        if (t < 1) {
+          requestAnimationFrame(animateCamera);
+        } else {
+          // Ensure final position is set
+          camera.position.copy(targetPosition);
+          controls.update();
+        }
+      };
+
+      requestAnimationFrame(animateCamera);
+    }
+  }, []);
+
   const handleClick = useCallback(
     (event: MouseEvent) => {
       if (interactionMode === InteractionModes.ORBIT) {
@@ -96,13 +159,14 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
             });
             setShowColorPicker(true);
           } else if (interactionMode === InteractionModes.SIDE_SELECTION) {
-            console.log('Setting current side to: ', intersectedFace);
             setCurrentSide(intersectedFace);
+            animateCameraToSide(intersectedFace);
+            setInteractionMode(InteractionModes.ORBIT);
           }
         }
       }
     },
-    [interactionMode, setSelectedSquare, setShowColorPicker, setCurrentSide],
+    [interactionMode, setSelectedSquare, setShowColorPicker, setCurrentSide, animateCameraToSide],
   );
 
   // Memoize handleResize
@@ -272,51 +336,9 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
     }
   }, [cubeColors]);
 
-  // Animate camera when currentSide changes
   useEffect(() => {
-    if (cameraRef.current && controlsRef.current) {
-      const camera = cameraRef.current;
-      const controls = controlsRef.current;
-      const duration = 1000; // Animation duration in milliseconds
-      const startPosition = camera.position.clone();
-
-      // Define target positions for each side
-      const positions = [
-        new THREE.Vector3(5, 0, 0),   // Right face (side 1)
-        new THREE.Vector3(-5, 0, 0),  // Left face (side 3)
-
-        new THREE.Vector3(0, 5, 0),   // Top face (side 4)
-        new THREE.Vector3(0, -5, 0),  // Bottom face (side 5)
-        new THREE.Vector3(0, 0, 5),   // Front face (side 0)
-        new THREE.Vector3(0, 0, -5),  // Back face (side 2)
-      ];
-
-      const targetPosition = positions[currentSide];
-      const startTime = performance.now();
-
-      const animateCamera = (time: number) => {
-        const elapsed = time - startTime;
-        const t = Math.min(elapsed / duration, 1); // Normalized time (0 to 1)
-
-        // Interpolate position
-        camera.position.lerpVectors(startPosition, targetPosition, t);
-        camera.lookAt(new THREE.Vector3(0, 0, 0)); // Ensure camera is looking at the cube
-
-        // Update controls
-        controls.update();
-
-        if (t < 1) {
-          requestAnimationFrame(animateCamera);
-        } else {
-          // Ensure final position is set
-          camera.position.copy(targetPosition);
-          controls.update();
-        }
-      };
-
-      requestAnimationFrame(animateCamera);
-    }
-  }, [currentSide]);
+    animateCameraToSide(currentSide);
+  }, [currentSide, animateCameraToSide]);
 
   // Update controls when interaction mode changes
   useEffect(() => {
@@ -347,9 +369,10 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
           : faceColors,
       );
 
-      setCubeColors(updatedColors); // Update the colors with the new color
-      setSelectedSquare(null); // Close the color picker after selection
+      setCubeColors(updatedColors);
+      setSelectedSquare(null);
       setShowColorPicker(false);
+      setInteractionMode(InteractionModes.ORBIT);
     }
   };
 
@@ -360,7 +383,6 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* Interaction Mode Buttons */}
       <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 100 }}>
         {Object.entries(InteractionModes).map(([, mode]) => (
           <button
