@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
 
@@ -42,6 +42,10 @@ const RubiksCubeApp: React.FC = () => {
       }
     }
   }
+  const cubeViewerRef = useRef<{
+    rotateSide: (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => void;
+  }>(null);
+
   const [cubeColors, setCubeColors] = useState<string[][][]>(initialCubeColors);
   const [currentSide, setCurrentSide] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -125,9 +129,25 @@ const RubiksCubeApp: React.FC = () => {
           <button onClick={handleRetake}>Retake</button>
           <button onClick={handleNextSide}>Next Side</button>
         </div>
+        <div style={{ position: 'relative' }}>
+          {/* Rotation Buttons */}
+          <div>
+            {[0, 1, 2, 3, 4, 5].map((side) => (
+              <div key={side}>
+                <button onClick={() => cubeViewerRef.current?.rotateSide(side, 'clockwise')}>
+                  {side} C
+                </button>
+                <button onClick={() => cubeViewerRef.current?.rotateSide(side, 'counterclockwise')}>
+                  {side} CC
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
       <div style={{ flex: '1 1 300px' }}>
         <RubiksCubeViewer
+          ref={cubeViewerRef}
           cubeColors={cubeColors}
           setCubeColors={setCubeColors}
           currentSide={currentSide}

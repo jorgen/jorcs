@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import ColorPicker from './ColorPicker.tsx';
@@ -19,12 +19,14 @@ const InteractionModes = {
 
 type InteractionMode = typeof InteractionModes[keyof typeof InteractionModes];
 
-const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
-                                                             cubeColors,
-                                                             currentSide,
-                                                             setCubeColors,
-                                                             setCurrentSide,
-                                                           }) => {
+const RubiksCubeViewer = forwardRef<{
+  rotateSide: (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => void;
+}, RubiksCubeViewerProps>(({
+                             cubeColors,
+                             currentSide,
+                             setCubeColors,
+                             setCurrentSide,
+                           }, ref) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<{
     faceIndex: number;
@@ -301,6 +303,10 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
     [sceneRef, cubiesRef, updateCubeColorsAfterRotation],
   );
 
+  useImperativeHandle(ref, () => ({
+    rotateSide,
+  }));
+
   function rotateFace(face: string[][], direction: 'clockwise' | 'counterclockwise'): string[][] {
     const n = face.length;
 
@@ -339,14 +345,20 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
       const duration = 1000; // Animation duration in milliseconds
       const startPosition = camera.position.clone();
 
-      // Define target positions for each side
+      // Calculate the same camera distance used initially
+      const cubeSize = 2;
+      const maxCubeDimension = Math.sqrt(3 * Math.pow(cubeSize, 2));
+      const fovRadians = THREE.MathUtils.degToRad(camera.fov);
+      const cameraDistance = (maxCubeDimension / 2) / Math.sin(fovRadians / 2) + 5;
+
+      // Define target positions for each side at the calculated distance
       const positions = [
-        new THREE.Vector3(5, 0, 0),   // Right face (side 0)
-        new THREE.Vector3(-5, 0, 0),  // Left face (side 1)
-        new THREE.Vector3(0, 5, 0),   // Top face (side 2)
-        new THREE.Vector3(0, -5, 0),  // Bottom face (side 3)
-        new THREE.Vector3(0, 0, 5),   // Front face (side 4)
-        new THREE.Vector3(0, 0, -5),  // Back face (side 5)
+        new THREE.Vector3(cameraDistance, 0, 0),    // Right face (side 0)
+        new THREE.Vector3(-cameraDistance, 0, 0),   // Left face (side 1)
+        new THREE.Vector3(0, cameraDistance, 0),    // Top face (side 2)
+        new THREE.Vector3(0, -cameraDistance, 0),   // Bottom face (side 3)
+        new THREE.Vector3(0, 0, cameraDistance),    // Front face (side 4)
+        new THREE.Vector3(0, 0, -cameraDistance),   // Back face (side 5)
       ];
 
       const targetPosition = positions[sideIndex];
@@ -497,7 +509,14 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
         0.1,
         1000,
       );
-      camera.position.z = 5;
+      // Calculate the camera distance
+      const cubeSize = 2; // The cube spans from -1 to 1 in each axis
+      const maxCubeDimension = Math.sqrt(3 * Math.pow(cubeSize, 2)); // Diagonal length of the cube
+      const fovRadians = THREE.MathUtils.degToRad(camera.fov); // Convert FOV to radians
+      const cameraDistance = (maxCubeDimension / 2) / Math.sin(fovRadians / 2);
+
+      // Add some extra distance to ensure the cube is fully visible
+      camera.position.set(0, 0, cameraDistance + 100);
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(mount.clientWidth, mount.clientHeight);
@@ -527,6 +546,8 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
 
       // Add orbit controls
       const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 0, 0);
+      controls.update();
       controls.enableRotate = interactionMode === InteractionModes.ORBIT;
       controls.enableZoom = interactionMode === InteractionModes.ORBIT;
       controls.enablePan = interactionMode === InteractionModes.ORBIT;
@@ -742,20 +763,6 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
         ))}
       </div>
 
-      {/* Rotation Buttons */}
-      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100 }}>
-        {[0, 1, 2, 3, 4, 5].map((side) => (
-          <div key={side}>
-            <button onClick={() => rotateSide(side, 'clockwise')}>
-              {side} C
-            </button>
-            <button onClick={() => rotateSide(side, 'counterclockwise')}>
-              {side} CC
-            </button>
-          </div>
-        ))}
-      </div>
-
       {/* Three.js Canvas */}
       <div ref={mountRef} style={{ width: '100%', maxWidth: '640px', height: '500px' }} />
 
@@ -765,6 +772,6 @@ const RubiksCubeViewer: React.FC<RubiksCubeViewerProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default RubiksCubeViewer;
