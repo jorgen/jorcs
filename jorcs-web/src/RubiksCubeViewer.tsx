@@ -37,6 +37,8 @@ const RubiksCubeViewer = forwardRef<{
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(
     InteractionModes.ORBIT,
   );
+  const [isMirrored, setIsMirrored] = useState(false);
+
 
   console.log('Viewer with current side: ', currentSide);
 
@@ -550,7 +552,7 @@ const RubiksCubeViewer = forwardRef<{
       controls.update();
       controls.enableRotate = interactionMode === InteractionModes.ORBIT;
       controls.enableZoom = interactionMode === InteractionModes.ORBIT;
-      controls.enablePan = interactionMode === InteractionModes.ORBIT;
+      //controls.enablePan = interactionMode === InteractionModes.ORBIT;
 
       // Store references
       sceneRef.current = scene;
@@ -602,7 +604,7 @@ const RubiksCubeViewer = forwardRef<{
       const controls = controlsRef.current;
       controls.enableRotate = interactionMode === InteractionModes.ORBIT;
       controls.enableZoom = interactionMode === InteractionModes.ORBIT;
-      controls.enablePan = interactionMode === InteractionModes.ORBIT;
+      //controls.enablePan = interactionMode === InteractionModes.ORBIT;
     }
 
     // Close color picker if mode changes
@@ -762,7 +764,18 @@ const RubiksCubeViewer = forwardRef<{
           </button>
         ))}
       </div>
-
+      {/* Mirror Toggle Switch */}
+      <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 100 }}>
+        <label style={{ color: 'white', fontSize: '16px' }}>
+          Mirror:
+          <input
+            type="checkbox"
+            checked={isMirrored}
+            onChange={() => setIsMirrored(!isMirrored)}
+            style={{ marginLeft: '5px' }}
+          />
+        </label>
+      </div>
       {/* Three.js Canvas */}
       <div ref={mountRef} style={{ width: '100%', maxWidth: '640px', height: '500px' }} />
 
