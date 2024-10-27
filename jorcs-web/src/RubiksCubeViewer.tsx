@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import ColorPicker from './ColorPicker.tsx';
+import OrbitControls from './OrbitControls.ts';
 
 type RubiksCubeViewerProps = {
   cubeColors: string[][][]; // 3D array of colors for each face
@@ -427,8 +427,14 @@ const RubiksCubeViewer = forwardRef<{
       }
 
       const rect = renderer.domElement.getBoundingClientRect();
+
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      // Invert mouse.x if mirrored
+      if (isMirrored) {
+        mouse.x = -mouse.x;
+      }
 
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(cubiesRef.current);
@@ -552,7 +558,7 @@ const RubiksCubeViewer = forwardRef<{
       controls.update();
       controls.enableRotate = interactionMode === InteractionModes.ORBIT;
       controls.enableZoom = interactionMode === InteractionModes.ORBIT;
-      //controls.enablePan = interactionMode === InteractionModes.ORBIT;
+      controls.enablePan = false; //interactionMode === InteractionModes.ORBIT;
 
       // Store references
       sceneRef.current = scene;
@@ -604,7 +610,7 @@ const RubiksCubeViewer = forwardRef<{
       const controls = controlsRef.current;
       controls.enableRotate = interactionMode === InteractionModes.ORBIT;
       controls.enableZoom = interactionMode === InteractionModes.ORBIT;
-      //controls.enablePan = interactionMode === InteractionModes.ORBIT;
+      controls.enablePan = false;//interactionMode === InteractionModes.ORBIT;
     }
 
     // Close color picker if mode changes
@@ -613,6 +619,13 @@ const RubiksCubeViewer = forwardRef<{
       setSelectedSquare(null);
     }
   }, [interactionMode]);
+
+  useEffect(() => {
+    if (controlsRef.current) {
+      const controls = controlsRef.current;
+      controls.isMirrored = isMirrored;
+    }
+  }, [isMirrored]);
 
   const handleColorChange = (newColor: string) => {
     if (selectedSquare) {
@@ -777,7 +790,12 @@ const RubiksCubeViewer = forwardRef<{
         </label>
       </div>
       {/* Three.js Canvas */}
-      <div ref={mountRef} style={{ width: '100%', maxWidth: '640px', height: '500px' }} />
+      <div ref={mountRef} style={{
+        width: '100%',
+        maxWidth: '640px',
+        height: '500px',
+        transform: isMirrored ? 'scaleX(-1)' : 'none',
+      }} />
 
       {/* Color Picker */}
       {showColorPicker && interactionMode === InteractionModes.COLOR_PICKER && (
