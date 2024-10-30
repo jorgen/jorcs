@@ -115,21 +115,21 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   }
 
   private onMouseDown(event: MouseEvent) {
-    if (this.enabled === false) return;
+    if (!this.enabled) return;
 
     switch (event.button) {
       case 0: // Left button
-        if (this.enableRotate === false) return;
+        if (!this.enableRotate) return;
         this.handleMouseDownRotate(event);
         this.state = 'rotate';
         break;
       case 1: // Middle button
-        if (this.enableZoom === false) return;
+        if (!this.enableZoom) return;
         this.handleMouseDownDolly(event);
         this.state = 'dolly';
         break;
       case 2: // Right button
-        if (this.enablePan === false) return;
+        if (!this.enablePan) return;
         this.handleMouseDownPan(event);
         this.state = 'pan';
         break;
@@ -142,26 +142,26 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   }
 
   private onMouseMove(event: MouseEvent) {
-    if (this.enabled === false) return;
+    if (!this.enabled) return;
 
     switch (this.state) {
       case 'rotate':
-        if (this.enableRotate === false) return;
+        if (!this.enableRotate) return;
         this.handleMouseMoveRotate(event);
         break;
       case 'dolly':
-        if (this.enableZoom === false) return;
+        if (!this.enableZoom) return;
         this.handleMouseMoveDolly(event);
         break;
       case 'pan':
-        if (this.enablePan === false) return;
+        if (!this.enablePan) return;
         this.handleMouseMovePan(event);
         break;
     }
   }
 
   private onMouseUp(_event: MouseEvent) {
-    if (this.enabled === false) return;
+    if (!this.enabled) return;
 
     document.removeEventListener('mousemove', this.onMouseMove);
     document.removeEventListener('mouseup', this.onMouseUp);
@@ -170,7 +170,7 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   }
 
   private onMouseWheel(event: WheelEvent) {
-    if (this.enabled === false || this.enableZoom === false) return;
+    if (!this.enabled || !this.enableZoom) return;
 
     event.preventDefault();
 
@@ -178,21 +178,21 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   }
 
   private onTouchStart(event: TouchEvent) {
-    if (this.enabled === false) return;
+    if (!this.enabled) return;
 
     switch (event.touches.length) {
       case 1: // One-finger touch: rotate
-        if (this.enableRotate === false) return;
+        if (!this.enableRotate) return;
         this.handleTouchStartRotate(event);
         this.state = 'rotate';
         break;
       case 2: // Two-finger touch: zoom
-        if (this.enableZoom === false) return;
+        if (!this.enableZoom) return;
         this.handleTouchStartDolly(event);
         this.state = 'dolly';
         break;
       case 3: // Three-finger touch: pan
-        if (this.enablePan === false) return;
+        if (!this.enablePan) return;
         this.handleTouchStartPan(event);
         this.state = 'pan';
         break;
@@ -200,26 +200,26 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   }
 
   private onTouchMove(event: TouchEvent) {
-    if (this.enabled === false) return;
+    if (!this.enabled) return;
 
     switch (this.state) {
       case 'rotate':
-        if (this.enableRotate === false) return;
+        if (!this.enableRotate) return;
         this.handleTouchMoveRotate(event);
         break;
       case 'dolly':
-        if (this.enableZoom === false) return;
+        if (!this.enableZoom) return;
         this.handleTouchMoveDolly(event);
         break;
       case 'pan':
-        if (this.enablePan === false) return;
+        if (!this.enablePan) return;
         this.handleTouchMovePan(event);
         break;
     }
   }
 
   private onTouchEnd(_event: TouchEvent) {
-    if (this.enabled === false) return;
+    if (!this.enabled) return;
 
     this.state = '';
   }
@@ -402,7 +402,7 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
       panOffset.multiplyScalar(-panX);
 
       const panUp = new THREE.Vector3();
-      if (this.screenSpacePanning === true) {
+      if (this.screenSpacePanning) {
         panUp.setFromMatrixColumn(this.object.matrix, 1);
       } else {
         panUp.setFromMatrixColumn(this.object.matrix, 0);
