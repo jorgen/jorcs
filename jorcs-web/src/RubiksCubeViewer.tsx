@@ -470,29 +470,6 @@ const RubiksCubeViewer = forwardRef<{
     [interactionMode, setSelectedSquare, setShowColorPicker, setCurrentSide, animateCameraToSide],
   );
 
-  // Memoize handleResize
-  const handleResize = useCallback(() => {
-    const renderer = rendererRef.current;
-    const camera = cameraRef.current;
-    const mount = mountRef.current;
-
-    if (renderer && camera && mount) {
-      renderer.setSize(mount.clientWidth, mount.clientHeight);
-      camera.aspect = mount.clientWidth / mount.clientHeight;
-      camera.updateProjectionMatrix();
-    }
-  }, []);
-
-  // Event listener for window resize
-  useEffect(() => {
-    window.addEventListener('resize', handleResize);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [handleResize]);
-
   // Event listener for mouse click
   useEffect(() => {
     const renderer = rendererRef.current;
@@ -529,6 +506,18 @@ const RubiksCubeViewer = forwardRef<{
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       mount.appendChild(renderer.domElement);
+
+      const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          const { width, height } = entry.contentRect;
+
+          renderer.setSize(width, height);
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+        }
+      });
+
+      resizeObserver.observe(mount);
 
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
       scene.add(ambientLight);
@@ -580,6 +569,7 @@ const RubiksCubeViewer = forwardRef<{
 
       // Clean up on unmount
       return () => {
+        resizeObserver.disconnect();
         mount.removeChild(renderer.domElement);
         renderer.dispose();
         sceneRef.current = undefined; // Reset the scene reference
@@ -757,7 +747,7 @@ const RubiksCubeViewer = forwardRef<{
   }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Interaction Mode Buttons */}
       <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 100 }}>
         {Object.entries(InteractionModes).map(([, mode]) => (
@@ -792,8 +782,7 @@ const RubiksCubeViewer = forwardRef<{
       {/* Three.js Canvas */}
       <div ref={mountRef} style={{
         width: '100%',
-        maxWidth: '640px',
-        height: '500px',
+        height: '100%',
         transform: isMirrored ? 'scaleX(-1)' : 'none',
       }} />
 
