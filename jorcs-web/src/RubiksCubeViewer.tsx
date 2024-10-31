@@ -522,7 +522,6 @@ const RubiksCubeViewer = forwardRef<{
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
       scene.add(ambientLight);
 
-      // Create cubies
       const cubies: THREE.Mesh[] = [];
       const cubieSize = 0.98; // Slightly less than 1 to avoid z-fighting
 
