@@ -1,85 +1,49 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
-
-type OverlayData = {
-  colors: string[][];
-  hsvValues: { h: number; s: number; v: number }[][];
-  subImages: string[][];
-};
-
-function createDefaultOverlayData(): OverlayData {
-  const defaultColor = 'grey';
-  const defaultHSV = { h: 0, s: 0, v: 50 }; // Grey in HSV
-  const rows = 3;
-  const cols = 3;
-
-  const colors = Array.from({ length: rows }, () =>
-    Array(cols).fill(defaultColor),
-  );
-  const hsvValues = Array.from({ length: rows }, () =>
-    Array(cols).fill({ ...defaultHSV }),
-  );
-  const subImages = Array.from({ length: rows }, () => Array(cols).fill(''));
-
-  return {
-    colors,
-    hsvValues,
-    subImages,
-  };
-}
-
-const sideOrder = [0, 5, 1, 4, 2, 3];
+import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
 
 const RubiksCubeApp: React.FC = () => {
-  let initialCubeColors: string[][][] = [];
-  for (let i = 0; i < 6; i++) {
-    initialCubeColors[i] = [];
-    for (let j = 0; j < 3; j++) {
-      initialCubeColors[i][j] = [];
-      for (let k = 0; k < 3; k++) {
-        initialCubeColors[i][j][k] = 'grey';
-      }
-    }
-  }
   const cubeViewerRef = useRef<{
-    rotateSide: (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => void;
+    rotateSide: (
+      sideIndex: number,
+      direction: 'clockwise' | 'counterclockwise',
+    ) => void;
   }>(null);
 
-  const [cubeColors, setCubeColors] = useState<string[][][]>(initialCubeColors);
-  const [currentSide, setCurrentSide] = useState(0);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const {
+    cubeColors,
+    setCubeColors,
+    currentSide,
+    setCurrentSide,
+    currentIndex,
+    setCurrentIndex,
+    overlayData,
+    setOverlayData,
+    detectionEnabled,
+    setDetectionEnabled,
+    showDebugPane,
+  } = useCubeStore();
 
-  const [overlayData, setOverlayData] = useState<OverlayData>(createDefaultOverlayData());
-  const [detectionEnabled, setDetectionEnabled] = useState(true);
-  const [showDebugPane] = useState(true);
-
-  function handleSetOverlayData(data: OverlayData) {
+  const handleSetOverlayData = (data: OverlayData) => {
     setOverlayData(data);
     setCubeColors((prevColors) => {
       const newColors = [...prevColors];
       newColors[currentSide] = data.colors;
       return newColors;
     });
-  }
+  };
 
   const handleOverlayDataCaptured = (data: OverlayData) => {
     handleSetOverlayData(data);
     setDetectionEnabled(false);
   };
 
-  // Define the handleOverlayDataUpdated function
   const handleOverlayDataUpdated = (updatedData: OverlayData) => {
     handleSetOverlayData(updatedData);
   };
 
   const setNewSide = (side: number) => {
-    setCubeColors((prevColors) => {
-      const newColors = [...prevColors];
-      newColors[currentSide] = overlayData.colors;
-      return newColors;
-    });
-
     setCurrentSide(side);
     for (let i = 0; i < 6; i++) {
       if (sideOrder[i] === side) {
@@ -90,7 +54,6 @@ const RubiksCubeApp: React.FC = () => {
 
     setOverlayData(createDefaultOverlayData());
     setDetectionEnabled(true);
-
   };
 
   const handlePreviousSide = () => {
@@ -134,10 +97,18 @@ const RubiksCubeApp: React.FC = () => {
           <div>
             {[0, 1, 2, 3, 4, 5].map((side) => (
               <div key={side}>
-                <button onClick={() => cubeViewerRef.current?.rotateSide(side, 'clockwise')}>
+                <button
+                  onClick={() =>
+                    cubeViewerRef.current?.rotateSide(side, 'clockwise')
+                  }
+                >
                   {side} C
                 </button>
-                <button onClick={() => cubeViewerRef.current?.rotateSide(side, 'counterclockwise')}>
+                <button
+                  onClick={() =>
+                    cubeViewerRef.current?.rotateSide(side, 'counterclockwise')
+                  }
+                >
                   {side} CC
                 </button>
               </div>
