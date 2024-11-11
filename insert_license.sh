@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # File extensions to process
-EXTENSIONS=("rs" "ts")
+EXTENSIONS=("h" "cpp")
 
 # Read the license text from the LICENSE_HEADER file
 LICENSE_TEXT=$(cat LICENSE_HEADER)
