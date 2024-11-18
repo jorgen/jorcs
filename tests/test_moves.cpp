@@ -77,42 +77,17 @@ TEST_CASE("Applying the same move four times returns to the original state")
   }
 }
 
-TEST_CASE("Testing specific move sequences")
+TEST_CASE("Move front and right 105 times and assert its back to initial state")
 {
   Cube cube;
-  // Initialize a solved cube
-  for (int i = 0; i < 8; ++i)
-  {
-    cube.corner_pos[i] = i;
-    cube.corner_ori[i] = 0;
-  }
-  for (int i = 0; i < 12; ++i)
-  {
-    cube.edge_pos[i] = i;
-    cube.edge_ori[i] = 0;
-  }
-
   Cube expected_cube = cube;
 
-  // Apply U move
-  applyMove(expected_cube, U);
-
-  // Test that applying U results in the expected cube state
-  Cube test_cube = cube;
-  applyMove(test_cube, U);
-
-  CHECK(cubesAreEqual(expected_cube, test_cube));
-
-  // Apply sequence U F R
-  applyMove(expected_cube, F);
-  applyMove(expected_cube, R);
-
-  test_cube = cube;
-  applyMove(test_cube, U);
-  applyMove(test_cube, F);
-  applyMove(test_cube, R);
-
-  CHECK(cubesAreEqual(expected_cube, test_cube));
+  for (int i = 0; i < 105; i++)
+  {
+    applyMove(cube, F);
+    applyMove(cube, R);
+  }
+  CHECK(cubesAreEqual(cube, expected_cube));
 }
 
 TEST_CASE("Testing commutator [R, U]")

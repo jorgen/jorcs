@@ -63,8 +63,8 @@ const RubiksCubeViewer = forwardRef<{
     faceIndices: number[],
     _sideIndex: number,
     direction: 'clockwise' | 'counterclockwise',
-    type: 'row' | 'col',
-    index: number,
+    types: ('row' | 'col')[], // Array of types for each face
+    indices: number[],        // Array of indices for each face
     needReverse: boolean[],
   ) {
     let temp: any[] = [];
@@ -72,6 +72,8 @@ const RubiksCubeViewer = forwardRef<{
     // Extract lines from adjacent faces
     faceIndices.forEach((faceIndex, idx) => {
       const face = colors[faceIndex];
+      const type = types[idx];
+      const index = indices[idx];
       let line =
         type === 'row' ? [...face[index]] : face.map((row) => row[index]);
 
@@ -92,6 +94,8 @@ const RubiksCubeViewer = forwardRef<{
     // Assign the rotated lines back to the faces
     faceIndices.forEach((faceIndex, i) => {
       const face = colors[faceIndex];
+      const type = types[i];
+      const index = indices[i];
       let line = temp[i];
 
       if (needReverse[i]) {
@@ -123,9 +127,9 @@ const RubiksCubeViewer = forwardRef<{
             [2, 4, 3, 5], // Adjacent faces: Top, Front, Bottom, Back
             sideIndex,
             direction,
-            'col',
-            2,
-            [false, false, false, true], // Need to reverse Back face
+            ['col', 'col', 'col', 'col'],
+            [2, 2, 2, 0], // Column indices for each face
+            [false, false, false, true], // Reverse Back face
           );
           break;
         case 1: // Left face (-X)
@@ -134,53 +138,53 @@ const RubiksCubeViewer = forwardRef<{
             [2, 5, 3, 4], // Adjacent faces: Top, Back, Bottom, Front
             sideIndex,
             direction,
-            'col',
-            0,
-            [false, false, false, true], // Need to reverse Front face
+            ['col', 'col', 'col', 'col'],
+            [0, 2, 0, 0], // Column indices for each face
+            [false, true, false, false], // Reverse Back face
           );
           break;
         case 2: // Top face (+Y)
           updateAdjacentFaces(
             newCubeColors,
-            [5, 0, 4, 1], // Adjacent faces: Back, Right, Front, Left
+            [4, 0, 5, 1], // Adjacent faces: Front, Right, Back, Left
             sideIndex,
             direction,
-            'row',
-            0,
+            ['row', 'row', 'row', 'row'],
+            [0, 0, 0, 0], // Row indices for each face
             [false, false, false, false],
           );
           break;
         case 3: // Bottom face (-Y)
           updateAdjacentFaces(
             newCubeColors,
-            [4, 0, 5, 1], // Adjacent faces: Front, Right, Back, Left
+            [4, 1, 5, 0], // Adjacent faces: Front, Left, Back, Right
             sideIndex,
             direction,
-            'row',
-            2,
+            ['row', 'row', 'row', 'row'],
+            [2, 2, 2, 2], // Row indices for each face
             [false, false, false, false],
           );
           break;
         case 4: // Front face (+Z)
           updateAdjacentFaces(
             newCubeColors,
-            [2, 1, 3, 0], // Adjacent faces: Top, Left, Bottom, Right
+            [2, 0, 3, 1], // Adjacent faces: Top, Right, Bottom, Left
             sideIndex,
             direction,
-            'row',
-            2,
-            [false, false, false, false],
+            ['row', 'col', 'row', 'col'],
+            [2, 0, 0, 2], // Indices for each face
+            [true, false, false, true], // Reverse Top and Left faces
           );
           break;
         case 5: // Back face (-Z)
           updateAdjacentFaces(
             newCubeColors,
-            [2, 0, 3, 1], // Adjacent faces: Top, Right, Bottom, Left
+            [2, 1, 3, 0], // Adjacent faces: Top, Left, Bottom, Right
             sideIndex,
             direction,
-            'row',
-            0,
-            [true, false, true, false], // Need to reverse Top and Bottom faces
+            ['row', 'col', 'row', 'col'],
+            [0, 0, 2, 2], // Indices for each face
+            [true, false, false, true], // Reverse Top and Right faces
           );
           break;
         default:
@@ -196,38 +200,16 @@ const RubiksCubeViewer = forwardRef<{
     (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => {
       if (!sceneRef.current) return;
 
-      // Determine the axis and layer value for the side
-      let axis: 'x' | 'y' | 'z';
-      let layerValue: number;
-
-      switch (sideIndex) {
-        case 0: // Right face (+X)
-          axis = 'x';
-          layerValue = 1;
-          break;
-        case 1: // Left face (-X)
-          axis = 'x';
-          layerValue = -1;
-          break;
-        case 2: // Top face (+Y)
-          axis = 'y';
-          layerValue = 1;
-          break;
-        case 3: // Bottom face (-Y)
-          axis = 'y';
-          layerValue = -1;
-          break;
-        case 4: // Front face (+Z)
-          axis = 'z';
-          layerValue = 1;
-          break;
-        case 5: // Back face (-Z)
-          axis = 'z';
-          layerValue = -1;
-          break;
-        default:
-          return;
-      }
+      // Mapping for each side
+      const sideRotations: { [key: number]: { axis: 'x' | 'y' | 'z'; layerValue: number; angleMultiplier: number } } = {
+        0: { axis: 'x', layerValue: 1, angleMultiplier: 1 },
+        1: { axis: 'x', layerValue: -1, angleMultiplier: -1 },
+        2: { axis: 'y', layerValue: 1, angleMultiplier: 1 },
+        3: { axis: 'y', layerValue: -1, angleMultiplier: -1 },
+        4: { axis: 'z', layerValue: 1, angleMultiplier: 1 },
+        5: { axis: 'z', layerValue: -1, angleMultiplier: -1 },
+      };
+      const { axis, layerValue, angleMultiplier } = sideRotations[sideIndex];
 
       // Group cubies on the specified layer
       const rotationGroup = new THREE.Group();
@@ -240,17 +222,12 @@ const RubiksCubeViewer = forwardRef<{
 
       sceneRef.current.add(rotationGroup);
 
-      // Define rotation parameters
-      let angle = (direction === 'clockwise' ? -1 : 1) * (Math.PI / 2); // 90 degrees
+      let angle = angleMultiplier * (direction === 'clockwise' ? -1 : 1) * (Math.PI / 2);
       const rotationAxis = new THREE.Vector3(
         axis === 'x' ? 1 : 0,
         axis === 'y' ? 1 : 0,
         axis === 'z' ? 1 : 0,
       );
-
-      if (sideIndex === 1 || sideIndex === 3 || sideIndex === 5) {
-        angle *= -1;
-      }
 
       // Animate the rotation
       let startTime: number | null = null;
@@ -292,8 +269,11 @@ const RubiksCubeViewer = forwardRef<{
 
           sceneRef.current?.remove(rotationGroup);
 
-          // Update cubeColors state
-          updateCubeColorsAfterRotation(sideIndex, direction);
+          let adjustedDirection = direction;
+          if (sideIndex === 1 || sideIndex === 3 || sideIndex === 5) {
+            adjustedDirection = direction === 'clockwise' ? 'counterclockwise' : 'clockwise';
+          }
+          updateCubeColorsAfterRotation(sideIndex, adjustedDirection);
 
           // Force a render to update the scene
           rendererRef.current?.render(sceneRef.current!, cameraRef.current!);

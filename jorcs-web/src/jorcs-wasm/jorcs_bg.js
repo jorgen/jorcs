@@ -31,5 +31,5 @@ export function greet() {
 
 export function __wbg_alert_a7cab2ed625a15e3(arg0, arg1) {
     alert(getStringFromWasm0(arg0, arg1));
-};
+}
 

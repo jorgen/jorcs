@@ -36,11 +36,66 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 #include <cstdint>
+#include <initializer_list>
+#include <algorithm>
 
 #include "jorcs/export.h"
 
+/*
+ * Standard Numbering Conventions
+Corners (0 to 7):
+
+Index	Position	Faces
+  0	Up-Left-Back	ULB
+  1	Up-Left-Front	ULF
+  2	Up-Right-Front	URF
+  3	Up-Right-Back	URB
+  4	Down-Left-Back	DLB
+  5	Down-Left-Front	DLF
+  6	Down-Right-Front	DRF
+  7	Down-Right-Back	DRB
+            Edges (0 to 11):
+
+  Index	Position	Faces
+  0	Up-Back	UB
+  1	Up-Left	UL
+  2	Up-Front	UF
+  3	Up-Right	UR
+  4	Left-Back	LB
+  5	Left-Front	LF
+  6	Right-Front	RF
+  7	Right-Back	RB
+  8	Down-Front	DF
+  9	Down-Left	DL
+  10	Down-Back	DB
+  11	Down-Right	DR
+
+ */
+
 struct Cube
 {
+  Cube()
+  {
+    for (int i = 0; i < 8; ++i)
+    {
+      corner_pos[i] = i;
+      corner_ori[i] = 0;
+    }
+    for (int i = 0; i < 12; ++i)
+    {
+      edge_pos[i] = i;
+      edge_ori[i] = 0;
+    }
+  }
+
+  Cube(std::initializer_list<unsigned char> cp, std::initializer_list<unsigned char> co, std::initializer_list<unsigned char> ep, std::initializer_list<unsigned char> eo)
+  {
+    std::copy(cp.begin(), cp.end(), corner_pos);
+    std::copy(co.begin(), co.end(), corner_ori);
+    std::copy(ep.begin(), ep.end(), edge_pos);
+    std::copy(eo.begin(), eo.end(), edge_ori);
+  }
+
   uint8_t corner_pos[8];
   uint8_t corner_ori[8];
   uint8_t edge_pos[12];
