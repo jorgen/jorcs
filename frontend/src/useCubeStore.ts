@@ -52,7 +52,6 @@ type CubeState = {
   currentIndex: number;
   overlayData: OverlayData;
   detectionEnabled: boolean;
-  showDebugPane: boolean;
 
   setCubeColors: (
     colors: string[][][] | ((prevColors: string[][][]) => string[][][]),
@@ -69,7 +68,6 @@ const useCubeStore = create<CubeState>((set) => ({
   currentIndex: 0,
   overlayData: createDefaultOverlayData(),
   detectionEnabled: true,
-  showDebugPane: true,
 
   setCubeColors: (colorsOrUpdater) =>
     set((state) => ({

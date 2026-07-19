@@ -2,12 +2,19 @@ import React, { useRef, useState } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
-import { ensureSolver, playMoves, randomScramble, solveScramble, solveScannedColors } from './solver';
+import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './solver';
 
 // Solved-cube colours in the viewer's side order: 0=R 1=L 2=U 3=D 4=F 5=B.
 const FACE_COLORS = ['#c41e3a', '#ff7f00', '#ffffff', '#ffd500', '#009e60', '#0051ba'];
 function solvedCubeColors(): string[][][] {
   return FACE_COLORS.map((color) => Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => color)));
+}
+
+// The move that undoes a given move (for stepping backwards): X <-> X', X2 <-> X2.
+function invertMove(move: string): string {
+  if (move.endsWith("'")) return move[0];
+  if (move.endsWith('2')) return move;
+  return move[0] + "'";
 }
 
 const RubiksCubeApp: React.FC = () => {
@@ -29,68 +36,85 @@ const RubiksCubeApp: React.FC = () => {
     setOverlayData,
     detectionEnabled,
     setDetectionEnabled,
-    showDebugPane,
   } = useCubeStore();
 
-  const [scramble, setScramble] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  // The current solution and how many of its moves have been applied so far.
+  const [solution, setSolution] = useState<string[]>([]);
+  const [step, setStep] = useState(0);
 
   // Read rotateSide fresh each call so the animated turns stay consistent.
   const rotate = (side: number, direction: 'clockwise' | 'counterclockwise') => cubeViewerRef.current?.rotateSide(side, direction);
 
+  const clearSolution = () => {
+    setSolution([]);
+    setStep(0);
+  };
+
   const handleScramble = async () => {
     if (busy) return;
     setBusy(true);
-    // Start downloading the pattern databases now so the first Solve isn't a cold wait.
+    clearSolution();
+    // Start building the solver now so the first Solve isn't a cold wait.
     void ensureSolver().catch(() => {});
     setStatus('Scrambling…');
     setCubeColors(solvedCubeColors());
     await new Promise((resolve) => setTimeout(resolve, 120));
-    const moves = randomScramble(20);
-    setScramble(moves.join(' '));
-    await playMoves(moves, rotate);
-    setStatus('Scrambled — press Solve for the optimal solution.');
+    await playMoves(randomScramble(20), rotate);
+    setStatus('Scrambled — press Solve to solve it.');
     setBusy(false);
   };
 
+  // Solve whatever cube is currently shown -- scrambled or scanned. The colour
+  // grid is the source of truth for both, so one path handles both.
   const handleSolve = async () => {
-    if (busy || !scramble) return;
-    setBusy(true);
-    setStatus('Solving…');
-    try {
-      const solution = await solveScramble(scramble);
-      setStatus(`Solution: ${solution.length} moves — ${solution.join(' ')}`);
-      await playMoves(solution, rotate);
-      setScramble('');
-      setStatus(`Solved in ${solution.length} moves.`);
-    } catch (error) {
-      setStatus(`Solve failed: ${(error as Error).message}`);
-    }
-    setBusy(false);
-  };
-
-  const handleSolveScan = async () => {
     if (busy) return;
     setBusy(true);
-    setStatus('Reading the scanned cube…');
+    clearSolution();
+    setStatus('Solving…');
     try {
-      const solution = await solveScannedColors(cubeColors);
-      if (solution.length === 0) {
-        setStatus('The scanned cube is already solved.');
+      const moves = await solveScannedColors(cubeColors);
+      if (moves.length === 0) {
+        setStatus('The cube is already solved.');
       } else {
-        setStatus(`Solution: ${solution.length} moves — ${solution.join(' ')}`);
-        await playMoves(solution, rotate);
-        setStatus(`Solved in ${solution.length} moves.`);
+        setSolution(moves);
+        setStep(0);
+        setStatus(`Solution: ${moves.length} moves. Step through them below.`);
       }
     } catch (error) {
       const message = (error as Error).message;
       setStatus(
         message.includes('bad-scan')
-          ? 'Could not read the cube — check the scanned colours (each colour must appear 9 times) and try again.'
+          ? 'Could not read the cube — check the colours (each must appear 9 times) and try again.'
           : `Solve failed: ${message}`,
       );
     }
+    setBusy(false);
+  };
+
+  const stepForward = async () => {
+    if (busy || step >= solution.length) return;
+    setBusy(true);
+    await playMoves([solution[step]], rotate);
+    setStep(step + 1);
+    setBusy(false);
+  };
+
+  const stepBack = async () => {
+    if (busy || step <= 0) return;
+    setBusy(true);
+    await playMoves([invertMove(solution[step - 1])], rotate);
+    setStep(step - 1);
+    setBusy(false);
+  };
+
+  const playRest = async () => {
+    if (busy || step >= solution.length) return;
+    setBusy(true);
+    const rest = solution.slice(step);
+    await playMoves(rest, rotate);
+    setStep(solution.length);
     setBusy(false);
   };
 
@@ -139,6 +163,8 @@ const RubiksCubeApp: React.FC = () => {
     setDetectionEnabled(true);
   };
 
+  const solved = solution.length > 0 && step === solution.length;
+
   return (
     <div
       style={{
@@ -161,41 +187,69 @@ const RubiksCubeApp: React.FC = () => {
           <button onClick={handleRetake}>Retake</button>
           <button onClick={handleNextSide}>Next Side</button>
         </div>
-        <div style={{ position: 'relative' }}>
-          {/* Rotation Buttons */}
-          <div>
-            {[0, 1, 2, 3, 4, 5].map((side) => (
-              <div key={side}>
-                <button
-                  onClick={() =>
-                    cubeViewerRef.current?.rotateSide(side, 'clockwise')
-                  }
-                >
-                  {side} C
-                </button>
-                <button
-                  onClick={() =>
-                    cubeViewerRef.current?.rotateSide(side, 'counterclockwise')
-                  }
-                >
-                  {side} CC
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
         <div style={{ marginTop: '12px' }}>
           <button onClick={handleScramble} disabled={busy}>
             Scramble
           </button>
-          <button onClick={handleSolve} disabled={busy || !scramble} style={{ marginLeft: '8px' }}>
+          <button onClick={handleSolve} disabled={busy} style={{ marginLeft: '8px' }}>
             Solve
-          </button>
-          <button onClick={handleSolveScan} disabled={busy} style={{ marginLeft: '8px' }}>
-            Solve scanned cube
           </button>
           {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
         </div>
+
+        {solution.length > 0 && (
+          <div
+            style={{
+              marginTop: '14px',
+              padding: '12px',
+              border: '1px solid #ccc',
+              borderRadius: '8px',
+              maxWidth: '420px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <strong>Solution</strong>
+              <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>
+                {solved ? 'done' : `move ${step + 1} of ${solution.length}`}
+              </span>
+            </div>
+
+            <div style={{ fontSize: '2rem', textAlign: 'center', margin: '8px 0', minHeight: '2.4rem' }}>
+              {solved ? '✓ Solved' : solution[step]}
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
+              {solution.map((move, index) => (
+                <span
+                  key={index}
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                    background: index === step ? '#ffd500' : 'transparent',
+                    color: index < step ? '#999' : index === step ? '#000' : 'inherit',
+                    border: '1px solid #ddd',
+                  }}
+                >
+                  {move}
+                </span>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={stepBack} disabled={busy || step === 0}>
+                ◀ Previous
+              </button>
+              <button onClick={stepForward} disabled={busy || solved}>
+                Next ▶
+              </button>
+              <button onClick={playRest} disabled={busy || solved} style={{ marginLeft: 'auto' }}>
+                Play all
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <div style={{ flex: '1 1 300px' }}>
         <RubiksCubeViewer
@@ -206,31 +260,6 @@ const RubiksCubeApp: React.FC = () => {
           setCurrentSide={setNewSide}
         />
       </div>
-      {showDebugPane && overlayData && (
-        <div style={{ marginTop: '20px' }}>
-          <h3>Debug Pane - Sub Images Used in Color Recognition</h3>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '10px',
-            }}
-          >
-            {overlayData.subImages.map((row, rowIndex) =>
-              row.map((imageSrc, colIndex) => (
-                <div key={`${rowIndex}-${colIndex}`}>
-                  <img
-                    src={imageSrc}
-                    alt={`Grid ${rowIndex}, ${colIndex}`}
-                    style={{ width: '100%' }}
-                  />
-                  <p>Color: {overlayData.colors[rowIndex][colIndex]}</p>
-                </div>
-              )),
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
