@@ -15,7 +15,6 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
 #pragma once
 
 #include <jorcs/cube.h>
@@ -45,96 +44,95 @@ struct MoveData
   uint8_t edge_ori_delta[12];
 };
 
-// Moves definitions
+// Moves definitions - corrected
 const MoveData moves[] = {
   // U move
   {
     {3, 0, 1, 2, 4, 5, 6, 7},
     {0, 0, 0, 0, 0, 0, 0, 0},
-    {3, 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
   },
   // U' move
   {
     {1, 2, 3, 0, 4, 5, 6, 7},
     {0, 0, 0, 0, 0, 0, 0, 0},
-    {1, 2, 3, 0, 4, 5, 6, 7, 8, 9, 10, 11},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
   },
   // D move
   {
-    {0, 1, 2, 3, 5, 6, 7, 4},
+    {0, 1, 2, 3, 7, 4, 5, 6},
     {0, 0, 0, 0, 0, 0, 0, 0},
     {0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 8},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
   },
   // D' move
   {
-    {0, 1, 2, 3, 7, 4, 5, 6},
+    {0, 1, 2, 3, 5, 6, 7, 4},
     {0, 0, 0, 0, 0, 0, 0, 0},
     {0, 1, 2, 3, 4, 5, 6, 7, 11, 8, 9, 10},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
   },
   // F move
   {
-    {0, 2, 6, 3, 4, 1, 5, 7},
-    {0, 1, 1, 0, 0, 2, 2, 0},
-    {0, 1, 7, 3, 4, 2, 6, 8, 5, 9, 10, 11},
+    {0, 5, 1, 3, 4, 6, 2, 7},
+    {0, 1, 2, 0, 0, 2, 1, 0},
+    {0, 1, 5, 3, 4, 8, 2, 7, 6, 9, 10, 11},
     {0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0}
   },
-  // Corrected F' move
+  // F' move
   {
-    {0, 5, 1, 3, 4, 6, 2, 7},
-    {0, 2, 2, 0, 0, 1, 1, 0},
-    {0, 1, 8, 3, 4, 2, 5, 7, 6, 9, 10, 11},
+    {0, 2, 6, 3, 4, 1, 5, 7},
+    {0, 2, 1, 0, 0, 1, 2, 0},
+    {0, 1, 6, 3, 4, 2, 8, 7, 5, 9, 10, 11},
     {0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0}
   },
   // B move
   {
-    {3, 0, 2, 7, 4, 5, 6, 1},
-    {2, 0, 0, 1, 1, 0, 0, 2},
-    {7, 1, 2, 0, 10, 5, 6, 11, 8, 9, 4, 3},
-    {1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1}
+    {4, 1, 2, 0, 7, 5, 6, 3},
+    {1, 0, 0, 2, 2, 0, 0, 1},
+    {10, 1, 2, 3, 0, 5, 6, 4, 8, 9, 11, 7},
+    {1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0}
   },
   // B' move
   {
-    {1, 0, 2, 3, 7, 5, 6, 4},
-    {1, 0, 0, 2, 2, 0, 0, 1},
-    {3, 1, 2, 11, 0, 5, 6, 7, 8, 9, 7, 4},
-    {1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1}
+    {3, 1, 2, 7, 0, 5, 6, 4},
+    {2, 0, 0, 1, 1, 0, 0, 2},
+    {4, 1, 2, 3, 7, 5, 6, 11, 8, 9, 0, 10},
+    {1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0}
   },
   // L move
   {
-    {1, 5, 2, 3, 0, 4, 6, 7},
-    {1, 1, 0, 0, 2, 2, 0, 0},
-    {0, 9, 2, 3, 1, 5, 6, 7, 8, 4, 10, 11},
-    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+    {4, 0, 2, 3, 5, 1, 6, 7},
+    {2, 1, 0, 0, 1, 2, 0, 0},
+    {0, 4, 2, 3, 9, 1, 6, 7, 8, 5, 10, 11},
+    {0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0}
   },
   // L' move
   {
-    {4, 0, 2, 3, 5, 1, 6, 7},
-    {2, 2, 0, 0, 1, 1, 0, 0},
-    {0, 4, 2, 3, 9, 5, 6, 7, 8, 1, 10, 11},
-    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+    {1, 5, 2, 3, 0, 4, 6, 7},
+    {1, 2, 0, 0, 2, 1, 0, 0},
+    {0, 5, 2, 3, 1, 9, 6, 7, 8, 4, 10, 11},
+    {0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0}
   },
   // R move
   {
-    {0, 1, 6, 2, 4, 5, 7, 3},
+    {0, 1, 3, 7, 4, 5, 2, 6},
     {0, 0, 1, 2, 0, 0, 2, 1},
-    {0, 1, 2, 6, 4, 5, 9, 3, 8, 7, 10, 11},
-    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+    {0, 1, 2, 7, 4, 5, 3, 11, 8, 9, 10, 6},
+    {0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1}
   },
   // R' move
   {
-    {0, 1, 3, 7, 4, 5, 2, 6},
+    {0, 1, 6, 2, 4, 5, 7, 3},
     {0, 0, 2, 1, 0, 0, 1, 2},
     {0, 1, 2, 6, 4, 5, 11, 3, 8, 9, 10, 7},
-    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+    {0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1}
   }
 };
 
-
-// Apply a move to the cube
+// Apply a move to the cube - corrected logic
 void applyMove(Cube &cube, Move move)
 {
   const MoveData &moveData = moves[move];
@@ -145,18 +143,18 @@ void applyMove(Cube &cube, Move move)
   uint8_t new_edge_pos[12];
   uint8_t new_edge_ori[12];
 
-  // Update corners
+  // Update corners - correct direction
   for (int i = 0; i < 8; ++i)
   {
-    new_corner_pos[i] = cube.corner_pos[moveData.corner_perm[i]];
-    new_corner_ori[i] = (cube.corner_ori[moveData.corner_perm[i]] + moveData.corner_ori_delta[i]) % 3;
+    new_corner_pos[moveData.corner_perm[i]] = cube.corner_pos[i];
+    new_corner_ori[moveData.corner_perm[i]] = (cube.corner_ori[i] + moveData.corner_ori_delta[i]) % 3;
   }
 
-  // Update edges
+  // Update edges - correct direction
   for (int i = 0; i < 12; ++i)
   {
-    new_edge_pos[i] = cube.edge_pos[moveData.edge_perm[i]];
-    new_edge_ori[i] = (cube.edge_ori[moveData.edge_perm[i]] + moveData.edge_ori_delta[i]) % 2;
+    new_edge_pos[moveData.edge_perm[i]] = cube.edge_pos[i];
+    new_edge_ori[moveData.edge_perm[i]] = (cube.edge_ori[i] + moveData.edge_ori_delta[i]) % 2;
   }
 
   // Write back updated positions and orientations
