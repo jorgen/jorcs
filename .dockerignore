@@ -8,3 +8,4 @@ build*/
 solver/build*/
 _ext/
 *.log
+frontend/public/pdb/

@@ -1,7 +1,14 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
+import { ensureSolver, playMoves, randomScramble, solveScramble } from './solver';
+
+// Solved-cube colours in the viewer's side order: 0=R 1=L 2=U 3=D 4=F 5=B.
+const FACE_COLORS = ['#c41e3a', '#ff7f00', '#ffffff', '#ffd500', '#009e60', '#0051ba'];
+function solvedCubeColors(): string[][][] {
+  return FACE_COLORS.map((color) => Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => color)));
+}
 
 const RubiksCubeApp: React.FC = () => {
   const cubeViewerRef = useRef<{
@@ -24,6 +31,44 @@ const RubiksCubeApp: React.FC = () => {
     setDetectionEnabled,
     showDebugPane,
   } = useCubeStore();
+
+  const [scramble, setScramble] = useState('');
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Read rotateSide fresh each call so the animated turns stay consistent.
+  const rotate = (side: number, direction: 'clockwise' | 'counterclockwise') => cubeViewerRef.current?.rotateSide(side, direction);
+
+  const handleScramble = async () => {
+    if (busy) return;
+    setBusy(true);
+    // Start downloading the pattern databases now so the first Solve isn't a cold wait.
+    void ensureSolver().catch(() => {});
+    setStatus('Scrambling…');
+    setCubeColors(solvedCubeColors());
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const moves = randomScramble(20);
+    setScramble(moves.join(' '));
+    await playMoves(moves, rotate);
+    setStatus('Scrambled — press Solve for the optimal solution.');
+    setBusy(false);
+  };
+
+  const handleSolve = async () => {
+    if (busy || !scramble) return;
+    setBusy(true);
+    setStatus('Solving…');
+    try {
+      const solution = await solveScramble(scramble);
+      setStatus(`Optimal: ${solution.length} moves — ${solution.join(' ')}`);
+      await playMoves(solution, rotate);
+      setScramble('');
+      setStatus(`Solved in ${solution.length} moves.`);
+    } catch (error) {
+      setStatus(`Solve failed: ${(error as Error).message}`);
+    }
+    setBusy(false);
+  };
 
   const handleSetOverlayData = (data: OverlayData) => {
     setOverlayData(data);
@@ -114,6 +159,15 @@ const RubiksCubeApp: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+        <div style={{ marginTop: '12px' }}>
+          <button onClick={handleScramble} disabled={busy}>
+            Scramble
+          </button>
+          <button onClick={handleSolve} disabled={busy || !scramble} style={{ marginLeft: '8px' }}>
+            Solve
+          </button>
+          {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
         </div>
       </div>
       <div style={{ flex: '1 1 300px' }}>

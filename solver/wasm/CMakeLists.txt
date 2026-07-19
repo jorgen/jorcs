@@ -29,5 +29,6 @@ target_link_options(jorcs PRIVATE
         -sENVIRONMENT=web
         -sSINGLE_FILE=1
         -sFILESYSTEM=0
+        -sALLOW_MEMORY_GROWTH=1
 )
 set_target_properties(jorcs PROPERTIES OUTPUT_NAME jorcs SUFFIX ".js")

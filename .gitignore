@@ -11,3 +11,6 @@ frontend/src/wasm/jorcs.wasm
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# generated pattern-database assets (built by pdbgen in Docker)
+frontend/public/pdb/

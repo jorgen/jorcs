@@ -16,13 +16,17 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <cstdint>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include <emscripten/bind.h>
+#include <emscripten/val.h>
 
 #include <jorcs/cube.h>
+#include <jorcs/ida.h>
 #include <jorcs/move.h>
 
 using namespace emscripten;
@@ -101,6 +105,102 @@ std::string version()
 {
   return "jorcs 0.0.1";
 }
+
+std::unique_ptr<IdaSolver> g_solver;
+
+const char *moveName(Move move)
+{
+  static const char *names[] = {"U", "U'", "D", "D'", "F", "F'", "B", "B'", "L", "L'", "R", "R'"};
+  return names[move];
+}
+
+// Bulk-copy a JS Uint8Array into a std::vector<uint8_t> via a memory view (fast,
+// unlike element-by-element conversion).
+std::vector<uint8_t> bytesFrom(const val &array)
+{
+  const unsigned length = array["length"].as<unsigned>();
+  std::vector<uint8_t> out(length);
+  val view = val(typed_memory_view(length, out.data()));
+  view.call<void>("set", array);
+  return out;
+}
+
+std::string solutionOf(const Cube &cube)
+{
+  if (!g_solver)
+  {
+    return std::string("ERROR:no-solver");
+  }
+  SolveResult result = g_solver->solve(cube);
+  if (!result.solved())
+  {
+    return std::string("ERROR:unsolved");
+  }
+  std::string out;
+  for (std::size_t i = 0; i < result.moves.size(); ++i)
+  {
+    if (i != 0)
+    {
+      out += ' ';
+    }
+    out += moveName(result.moves[i]);
+  }
+  return out;
+}
+
+// Load the prebuilt (decompressed) pattern databases so the solver is ready.
+void loadSolver(const val &corner, const val &edge_a, const val &edge_b)
+{
+  g_solver = std::make_unique<IdaSolver>(jorcs::ida_detail::loadPatternDatabases(bytesFrom(corner), bytesFrom(edge_a), bytesFrom(edge_b)));
+}
+
+bool solverReady()
+{
+  return g_solver != nullptr;
+}
+
+// Solve the cube reached by applying a scramble to the solved cube (used for demos
+// and validation — needs no colour recognition).
+std::string solveScramble(const std::string &scramble)
+{
+  Cube cube;
+  std::istringstream stream(scramble);
+  std::string token;
+  while (stream >> token)
+  {
+    const int move = lookupMove(token);
+    if (move >= 0)
+    {
+      applyMove(cube, static_cast<Move>(move));
+    }
+  }
+  return solutionOf(cube);
+}
+
+// Solve a cube given directly as the cubie model (corner/edge positions + orientations).
+std::string solveState(const val &corner_pos, const val &corner_ori, const val &edge_pos, const val &edge_ori)
+{
+  const std::vector<uint8_t> cp = bytesFrom(corner_pos);
+  const std::vector<uint8_t> co = bytesFrom(corner_ori);
+  const std::vector<uint8_t> ep = bytesFrom(edge_pos);
+  const std::vector<uint8_t> eo = bytesFrom(edge_ori);
+  if (cp.size() != 8 || co.size() != 8 || ep.size() != 12 || eo.size() != 12)
+  {
+    return std::string("ERROR:bad-state");
+  }
+  Cube cube;
+  for (int i = 0; i < 8; ++i)
+  {
+    cube.corner_pos[i] = cp[i];
+    cube.corner_ori[i] = co[i];
+  }
+  for (int i = 0; i < 12; ++i)
+  {
+    cube.edge_pos[i] = ep[i];
+    cube.edge_ori[i] = eo[i];
+  }
+  return solutionOf(cube);
+}
 } // namespace
 
 EMSCRIPTEN_BINDINGS(jorcs)
@@ -132,4 +232,9 @@ EMSCRIPTEN_BINDINGS(jorcs)
 
   function("applyScramble", &applyScramble);
   function("version", &version);
+
+  function("loadSolver", &loadSolver);
+  function("solverReady", &solverReady);
+  function("solveScramble", &solveScramble);
+  function("solveState", &solveState);
 }

@@ -53,6 +53,13 @@ export interface JorcsModule {
   Cube: CubeConstructor;
   applyScramble(sequence: string): Cube;
   version(): string;
+
+  // Loads the prebuilt (decompressed) pattern databases so the solver is ready.
+  loadSolver(corner: Uint8Array, edgeA: Uint8Array, edgeB: Uint8Array): void;
+  solverReady(): boolean;
+  // Returns a space-separated optimal solution, or "ERROR:..." on failure.
+  solveScramble(scramble: string): string;
+  solveState(cornerPos: Uint8Array, cornerOri: Uint8Array, edgePos: Uint8Array, edgeOri: Uint8Array): string;
 }
 
 declare const createJorcsModule: (options?: Record<string, unknown>) => Promise<JorcsModule>;
