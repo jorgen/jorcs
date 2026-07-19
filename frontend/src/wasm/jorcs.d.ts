@@ -69,6 +69,9 @@ export interface JorcsModule {
   // Half-turn-metric solution (e.g. "U R2 F' D2 ..."), or "ERROR:..." on failure.
   twoPhaseSolveScramble(scramble: string): string;
   twoPhaseSolveState(cornerPos: Uint8Array, cornerOri: Uint8Array, edgePos: Uint8Array, edgeOri: Uint8Array): string;
+  // Solve a scanned cube given as 54 facelets (face-index 0..5 per sticker; layout
+  // face*9+row*3+col, faces 0=R 1=L 2=U 3=D 4=F 5=B). "ERROR:bad-scan" if misread.
+  twoPhaseSolveFacelets(facelets: Uint8Array): string;
 }
 
 declare const createJorcsModule: (options?: Record<string, unknown>) => Promise<JorcsModule>;

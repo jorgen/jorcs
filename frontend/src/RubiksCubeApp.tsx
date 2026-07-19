@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
-import { ensureSolver, playMoves, randomScramble, solveScramble } from './solver';
+import { ensureSolver, playMoves, randomScramble, solveScramble, solveScannedColors } from './solver';
 
 // Solved-cube colours in the viewer's side order: 0=R 1=L 2=U 3=D 4=F 5=B.
 const FACE_COLORS = ['#c41e3a', '#ff7f00', '#ffffff', '#ffd500', '#009e60', '#0051ba'];
@@ -66,6 +66,30 @@ const RubiksCubeApp: React.FC = () => {
       setStatus(`Solved in ${solution.length} moves.`);
     } catch (error) {
       setStatus(`Solve failed: ${(error as Error).message}`);
+    }
+    setBusy(false);
+  };
+
+  const handleSolveScan = async () => {
+    if (busy) return;
+    setBusy(true);
+    setStatus('Reading the scanned cube…');
+    try {
+      const solution = await solveScannedColors(cubeColors);
+      if (solution.length === 0) {
+        setStatus('The scanned cube is already solved.');
+      } else {
+        setStatus(`Solution: ${solution.length} moves — ${solution.join(' ')}`);
+        await playMoves(solution, rotate);
+        setStatus(`Solved in ${solution.length} moves.`);
+      }
+    } catch (error) {
+      const message = (error as Error).message;
+      setStatus(
+        message.includes('bad-scan')
+          ? 'Could not read the cube — check the scanned colours (each colour must appear 9 times) and try again.'
+          : `Solve failed: ${message}`,
+      );
     }
     setBusy(false);
   };
@@ -166,6 +190,9 @@ const RubiksCubeApp: React.FC = () => {
           </button>
           <button onClick={handleSolve} disabled={busy || !scramble} style={{ marginLeft: '8px' }}>
             Solve
+          </button>
+          <button onClick={handleSolveScan} disabled={busy} style={{ marginLeft: '8px' }}>
+            Solve scanned cube
           </button>
           {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
         </div>

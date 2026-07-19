@@ -49,6 +49,33 @@ export async function solveScramble(scramble: string): Promise<string[]> {
 }
 
 // Quarter-turn moves, used to build scrambles (the solver returns half turns too).
+// Solve a SCANNED cube given as the viewer's colour grid (6 faces of 3x3 colour
+// names, in side order R,L,U,D,F,B). The six centres define which colour belongs
+// to which face; each sticker is mapped to that face-index (0..5) and handed to
+// the solver as 54 facelets. Throws with "ERROR:bad-scan" if the colours don't
+// form a real, solvable cube (a misread or incompletely-scanned cube).
+export async function solveScannedColors(cubeColors: string[][][]): Promise<string[]> {
+  const module = await ensureSolver();
+  const colorToFace = new Map<string, number>();
+  for (let f = 0; f < 6; f++) {
+    colorToFace.set(cubeColors[f][1][1], f);
+  }
+  const facelets = new Uint8Array(54);
+  for (let f = 0; f < 6; f++) {
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const face = colorToFace.get(cubeColors[f][r][c]);
+        facelets[f * 9 + r * 3 + c] = face === undefined ? 255 : face;
+      }
+    }
+  }
+  const result = module.twoPhaseSolveFacelets(facelets);
+  if (result.startsWith('ERROR')) {
+    throw new Error(result);
+  }
+  return result.length > 0 ? result.split(' ') : [];
+}
+
 export const MOVES = ['U', "U'", 'D', "D'", 'F', "F'", 'B', "B'", 'L', "L'", 'R', "R'"];
 
 // The viewer's sides: 0=Right 1=Left 2=Up 3=Down 4=Front 5=Back. A "clockwise"

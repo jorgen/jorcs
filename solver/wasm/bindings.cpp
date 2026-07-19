@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <emscripten/val.h>
 
 #include <jorcs/cube.h>
+#include <jorcs/facelet.h>
 #include <jorcs/ida.h>
 #include <jorcs/move.h>
 #include <jorcs/two_phase.h>
@@ -223,13 +224,19 @@ std::string solveState(const val &corner_pos, const val &corner_ori, const val &
 // are returned in half-turn metric, e.g. "U R2 F' D2 ...".
 
 std::unique_ptr<jorcs::two_phase::TwoPhaseSolver> g_two_phase;
+std::unique_ptr<jorcs::facelet::FaceletReconstructor> g_reconstructor;
 
-// Build the two-phase tables (a few hundred ms). Idempotent; call once up front.
+// Build the two-phase tables + the facelet reconstructor (a few hundred ms).
+// Idempotent; call once up front.
 void initTwoPhase()
 {
   if (!g_two_phase)
   {
     g_two_phase = std::make_unique<jorcs::two_phase::TwoPhaseSolver>();
+  }
+  if (!g_reconstructor)
+  {
+    g_reconstructor = std::make_unique<jorcs::facelet::FaceletReconstructor>();
   }
 }
 
@@ -286,6 +293,34 @@ std::string twoPhaseSolveState(const val &corner_pos, const val &corner_ori, con
   }
   return twoPhaseSolutionOf(cube);
 }
+
+// Two-phase solve of a SCANNED cube given as 54 facelets. Each value is the
+// face-index (0..5) of that sticker's colour; layout is face*9 + row*3 + col with
+// faces in viewer side order (0=R 1=L 2=U 3=D 4=F 5=B). Reconstructs the cubie
+// model and solves, or reports "ERROR:bad-scan" if the stickers don't form a real,
+// solvable cube (a misread scan).
+std::string twoPhaseSolveFacelets(const val &faceArray)
+{
+  const std::vector<uint8_t> faces = bytesFrom(faceArray);
+  if (faces.size() != 54)
+  {
+    return std::string("ERROR:bad-scan");
+  }
+  for (const uint8_t v : faces)
+  {
+    if (v > 5)
+    {
+      return std::string("ERROR:bad-scan");
+    }
+  }
+  initTwoPhase();
+  Cube cube;
+  if (!g_reconstructor->reconstruct(faces.data(), cube) || !jorcs::two_phase::isValidCube(cube))
+  {
+    return std::string("ERROR:bad-scan");
+  }
+  return twoPhaseSolutionOf(cube);
+}
 } // namespace
 
 EMSCRIPTEN_BINDINGS(jorcs)
@@ -327,4 +362,5 @@ EMSCRIPTEN_BINDINGS(jorcs)
   function("twoPhaseReady", &twoPhaseReady);
   function("twoPhaseSolveScramble", &twoPhaseSolveScramble);
   function("twoPhaseSolveState", &twoPhaseSolveState);
+  function("twoPhaseSolveFacelets", &twoPhaseSolveFacelets);
 }
