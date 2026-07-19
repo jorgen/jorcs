@@ -200,7 +200,9 @@ bool cubeFromArrays(const val &corner_pos, const val &corner_ori, const val &edg
     cube.edge_pos[i] = ep[i];
     cube.edge_ori[i] = eo[i];
   }
-  return true;
+  // Reject a malformed or unsolvable cube (e.g. a bad colour scan) rather than
+  // feeding it to a solver that assumes a valid, solvable state.
+  return jorcs::two_phase::isValidCube(cube);
 }
 
 // Solve a cube given directly as the cubie model (corner/edge positions + orientations).

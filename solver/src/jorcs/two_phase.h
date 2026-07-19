@@ -64,6 +64,63 @@ inline void applyHtm(Cube &cube, HtmMove m)
     applyQuarterTurn(cube, cw_moves[m.face]);
 }
 
+// Parity of a permutation (0 = even, 1 = odd) via inversion count.
+inline int permParity(const uint8_t *p, int n)
+{
+  int inversions = 0;
+  for (int i = 0; i < n; ++i)
+    for (int j = i + 1; j < n; ++j)
+      if (p[i] > p[j])
+        ++inversions;
+  return inversions & 1;
+}
+
+// Whether a cube is a well-formed, SOLVABLE state. This guards the solver against
+// malformed input -- most importantly a bad scan fed to twoPhaseSolveState. A
+// non-permutation, an out-of-range orientation, a single twisted corner / flipped
+// edge, or a single two-piece swap would otherwise drive the coordinate functions
+// out of bounds, hang the search, or yield a bogus "solution".
+inline bool isValidCube(const Cube &cube)
+{
+  bool seenCorner[8] = {false};
+  for (int i = 0; i < 8; ++i)
+  {
+    const int v = cube.corner_pos[i];
+    if (v >= 8 || seenCorner[v])
+      return false;
+    seenCorner[v] = true;
+  }
+  bool seenEdge[12] = {false};
+  for (int i = 0; i < 12; ++i)
+  {
+    const int v = cube.edge_pos[i];
+    if (v >= 12 || seenEdge[v])
+      return false;
+    seenEdge[v] = true;
+  }
+  int cornerOriSum = 0;
+  for (int i = 0; i < 8; ++i)
+  {
+    if (cube.corner_ori[i] > 2)
+      return false;
+    cornerOriSum += cube.corner_ori[i];
+  }
+  if (cornerOriSum % 3 != 0)
+    return false;
+  int edgeOriSum = 0;
+  for (int i = 0; i < 12; ++i)
+  {
+    if (cube.edge_ori[i] > 1)
+      return false;
+    edgeOriSum += cube.edge_ori[i];
+  }
+  if (edgeOriSum % 2 != 0)
+    return false;
+  // A single quarter turn is an odd permutation of both the corners and the edges,
+  // so a solvable cube has matching corner/edge permutation parity.
+  return permParity(cube.corner_pos, 8) == permParity(cube.edge_pos, 12);
+}
+
 namespace detail
 {
 
@@ -345,6 +402,13 @@ public:
   Result solve(const Cube &start, int max_length = 30)
   {
     using namespace detail;
+    // Reject malformed/unsolvable input up front: the coordinate functions and the
+    // search assume a valid, solvable cube. Without this an invalid scan could read
+    // out of bounds or search unbounded.
+    if (!isValidCube(start))
+      return Result{};
+    if (max_length > 31)
+      max_length = 31; // keep within the phase path buffers
     start_ = start;
     best_length_ = max_length + 1;
     best_.clear();
@@ -359,8 +423,22 @@ public:
     {
       phase1_path_len_ = 0;
       phase1Search(co, eo, slice, 0, bound1, -1);
-      if (nodes_ > kNodeBudget && !best_.empty())
+      if (nodes_ > kNodeBudget)
         break;
+    }
+
+    // Defense in depth: never report success for a solution that does not actually
+    // solve the cube, whatever the cause (a coordinate-model gap, a future bug).
+    if (found_)
+    {
+      Cube check = start;
+      for (HtmMove m : best_)
+        applyHtm(check, m);
+      if (!cubesAreEqual(check, Cube{}))
+      {
+        found_ = false;
+        best_.clear();
+      }
     }
 
     Result result;
@@ -532,6 +610,8 @@ private:
   void phase1Search(int co, int eo, int slice, int g, int bound, int prevFace)
   {
     ++nodes_;
+    if (nodes_ > kNodeBudget)
+      return;
     const int h = phase1Heuristic(co, eo, slice);
     if (g + h > bound)
       return;
@@ -548,8 +628,6 @@ private:
       handlePhase1Solution(g);
       return;
     }
-    if (nodes_ > kNodeBudget && !best_.empty())
-      return;
 
     for (int m = 0; m < detail::kNumPhase1Moves; ++m)
     {
@@ -602,6 +680,8 @@ private:
   bool phase2Search(int cp, int ep, int slicep, int g, int bound, int prevFace)
   {
     ++nodes_;
+    if (nodes_ > kNodeBudget)
+      return false;
     const int h = phase2Heuristic(cp, ep, slicep);
     if (g + h > bound)
       return false;

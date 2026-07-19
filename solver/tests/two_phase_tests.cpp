@@ -128,3 +128,46 @@ TEST_CASE("two-phase: deep scrambles stay near-optimal")
     CHECK(result.moves.size() <= 23u);
   }
 }
+
+TEST_CASE("two-phase: malformed and unsolvable cubes are rejected, not crashed")
+{
+  TwoPhaseSolver &solver = sharedSolver();
+
+  SUBCASE("non-permutation edge positions")
+  {
+    Cube cube; // all edge slots claim to hold slice piece 4 -> would overflow encodeSlice
+    for (int i = 0; i < 12; ++i)
+      cube.edge_pos[i] = 4;
+    CHECK_FALSE(solver.solve(cube).solved);
+  }
+  SUBCASE("out-of-range orientation")
+  {
+    Cube cube;
+    cube.corner_ori[0] = 200; // garbage from a bad scan
+    CHECK_FALSE(solver.solve(cube).solved);
+  }
+  SUBCASE("single twisted corner (orientation parity)")
+  {
+    Cube cube;
+    cube.corner_ori[0] = 1; // sum % 3 != 0 -> unsolvable
+    CHECK_FALSE(solver.solve(cube).solved);
+  }
+  SUBCASE("single flipped edge (orientation parity)")
+  {
+    Cube cube;
+    cube.edge_ori[0] = 1; // sum % 2 != 0 -> unsolvable
+    CHECK_FALSE(solver.solve(cube).solved);
+  }
+  SUBCASE("two swapped corners (permutation parity)")
+  {
+    Cube cube;
+    std::swap(cube.corner_pos[0], cube.corner_pos[1]); // odd corner perm, even edges
+    CHECK_FALSE(solver.solve(cube).solved);
+  }
+  SUBCASE("two swapped edges (permutation parity)")
+  {
+    Cube cube;
+    std::swap(cube.edge_pos[0], cube.edge_pos[1]);
+    CHECK_FALSE(solver.solve(cube).solved);
+  }
+}
