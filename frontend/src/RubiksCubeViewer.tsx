@@ -60,145 +60,70 @@ const RubiksCubeViewer = forwardRef<{
     SIDE_SELECTION: '⤵️', // Bold arrow icon
   };
 
-  function updateAdjacentFaces(
-    colors: string[][][],
-    faceIndices: number[],
-    _sideIndex: number,
-    direction: 'clockwise' | 'counterclockwise',
-    types: ('row' | 'col')[], // Array of types for each face
-    indices: number[],        // Array of indices for each face
-    needReverse: boolean[],
-  ) {
-    let temp: any[] = [];
-
-    // Extract lines from adjacent faces
-    faceIndices.forEach((faceIndex, idx) => {
-      const face = colors[faceIndex];
-      const type = types[idx];
-      const index = indices[idx];
-      let line =
-        type === 'row' ? [...face[index]] : face.map((row) => row[index]);
-
-      if (needReverse[idx]) {
-        line = line.reverse();
-      }
-
-      temp.push(line);
-    });
-
-    // Rotate the temp array based on the rotation direction
-    if (direction === 'clockwise') {
-      temp.unshift(temp.pop()!);
-    } else {
-      temp.push(temp.shift()!);
-    }
-
-    // Assign the rotated lines back to the faces
-    faceIndices.forEach((faceIndex, i) => {
-      const face = colors[faceIndex];
-      const type = types[i];
-      const index = indices[i];
-      let line = temp[i];
-
-      if (needReverse[i]) {
-        line = line.reverse();
-      }
-
-      if (type === 'row') {
-        face[index] = line;
-      } else {
-        face.forEach((row, rowIndex) => {
-          row[index] = line[rowIndex];
-        });
-      }
-    });
-  }
-
   const updateCubeColorsAfterRotation = useCallback(
     (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => {
-      // Apply the turn to the LATEST committed colors via a functional update.
-      // Reading from a captured `cubeColors` closure would race when moves are
-      // animated back-to-back (scramble/solve): one turn's repaint could clobber
-      // the previous, making stickers "switch" after the animation.
+      // Rotate the turning layer's stickers exactly the way the mesh geometry
+      // rotates the cubies -- same axis, same signed angle -- so the colour grid
+      // can never diverge from where the stickers physically end up. (The old
+      // hand-rolled adjacency tables were a wrong permutation that only looked
+      // correct on a solved cube, and corrupted colours across a sequence.)
+      // Applied via a functional update so back-to-back animated turns don't race.
+      const sideRotations: {
+        [key: number]: { axis: 'x' | 'y' | 'z'; layerValue: number; angleMultiplier: number };
+      } = {
+        0: { axis: 'x', layerValue: 1, angleMultiplier: 1 },
+        1: { axis: 'x', layerValue: -1, angleMultiplier: -1 },
+        2: { axis: 'y', layerValue: 1, angleMultiplier: 1 },
+        3: { axis: 'y', layerValue: -1, angleMultiplier: -1 },
+        4: { axis: 'z', layerValue: 1, angleMultiplier: 1 },
+        5: { axis: 'z', layerValue: -1, angleMultiplier: -1 },
+      };
+      const { axis, layerValue, angleMultiplier } = sideRotations[sideIndex];
+      // Sign of the rotation angle, matching rotateSide's geometry exactly.
+      const sign = angleMultiplier * (direction === 'clockwise' ? -1 : 1);
+
+      const faceNormals = [
+        [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+      ];
+      const normalToFace = (v: number[]) =>
+        faceNormals.findIndex((n) => n[0] === v[0] && n[1] === v[1] && n[2] === v[2]);
+      // A signed 90-degree rotation of an integer vector about the layer's axis.
+      const rotate90 = ([x, y, z]: number[]): number[] => {
+        if (axis === 'x') return sign > 0 ? [x, -z, y] : [x, z, -y];
+        if (axis === 'y') return sign > 0 ? [z, y, -x] : [-z, y, x];
+        return sign > 0 ? [-y, x, z] : [y, -x, z];
+      };
+      const onLayer = (x: number, y: number, z: number) =>
+        (axis === 'x' ? x : axis === 'y' ? y : z) === layerValue;
+      const facesAt = (x: number, y: number, z: number) => {
+        const faces: number[] = [];
+        if (x === 1) faces.push(0);
+        if (x === -1) faces.push(1);
+        if (y === 1) faces.push(2);
+        if (y === -1) faces.push(3);
+        if (z === 1) faces.push(4);
+        if (z === -1) faces.push(5);
+        return faces;
+      };
+
       setCubeColors((prev) => {
-      const newCubeColors = prev.map((face) => face.map((row) => [...row]));
-
-      // Rotate the face itself
-      newCubeColors[sideIndex] = rotateFace(newCubeColors[sideIndex], direction);
-
-      // Update adjacent faces
-      switch (sideIndex) {
-        case 0: // Right face (+X)
-          updateAdjacentFaces(
-            newCubeColors,
-            [2, 4, 3, 5], // Adjacent faces: Top, Front, Bottom, Back
-            sideIndex,
-            direction,
-            ['col', 'col', 'col', 'col'],
-            [2, 2, 2, 0], // Column indices for each face
-            [false, false, false, true], // Reverse Back face
-          );
-          break;
-        case 1: // Left face (-X)
-          updateAdjacentFaces(
-            newCubeColors,
-            [2, 5, 3, 4], // Adjacent faces: Top, Back, Bottom, Front
-            sideIndex,
-            direction,
-            ['col', 'col', 'col', 'col'],
-            [0, 2, 0, 0], // Column indices for each face
-            [false, true, false, false], // Reverse Back face
-          );
-          break;
-        case 2: // Top face (+Y)
-          updateAdjacentFaces(
-            newCubeColors,
-            [4, 0, 5, 1], // Adjacent faces: Front, Right, Back, Left
-            sideIndex,
-            direction,
-            ['row', 'row', 'row', 'row'],
-            [0, 0, 0, 0], // Row indices for each face
-            [false, false, false, false],
-          );
-          break;
-        case 3: // Bottom face (-Y)
-          updateAdjacentFaces(
-            newCubeColors,
-            [4, 1, 5, 0], // Adjacent faces: Front, Left, Back, Right
-            sideIndex,
-            direction,
-            ['row', 'row', 'row', 'row'],
-            [2, 2, 2, 2], // Row indices for each face
-            [false, false, false, false],
-          );
-          break;
-        case 4: // Front face (+Z)
-          updateAdjacentFaces(
-            newCubeColors,
-            [2, 0, 3, 1], // Adjacent faces: Top, Right, Bottom, Left
-            sideIndex,
-            direction,
-            ['row', 'col', 'row', 'col'],
-            [2, 0, 0, 2], // Indices for each face
-            [true, false, false, true], // Reverse Top and Left faces
-          );
-          break;
-        case 5: // Back face (-Z)
-          updateAdjacentFaces(
-            newCubeColors,
-            [2, 1, 3, 0], // Adjacent faces: Top, Left, Bottom, Right
-            sideIndex,
-            direction,
-            ['row', 'col', 'row', 'col'],
-            [0, 0, 2, 2], // Indices for each face
-            [true, false, false, true], // Reverse Top and Right faces
-          );
-          break;
-        default:
-          break;
-      }
-
-      return newCubeColors;
+        const next = prev.map((face) => face.map((row) => [...row]));
+        for (let x = -1; x <= 1; x++) {
+          for (let y = -1; y <= 1; y++) {
+            for (let z = -1; z <= 1; z++) {
+              if (!onLayer(x, y, z)) continue;
+              for (const face of facesAt(x, y, z)) {
+                const { row, col } = getFaceRowCol(face, x, y, z);
+                const color = prev[face][row][col];
+                const [nx, ny, nz] = rotate90([x, y, z]);
+                const newFace = normalToFace(rotate90(faceNormals[face]));
+                const { row: nr, col: nc } = getFaceRowCol(newFace, nx, ny, nz);
+                next[newFace][nr][nc] = color;
+              }
+            }
+          }
+        }
+        return next;
       });
     },
     [setCubeColors],
@@ -277,11 +202,7 @@ const RubiksCubeViewer = forwardRef<{
 
           sceneRef.current?.remove(rotationGroup);
 
-          let adjustedDirection = direction;
-          if (sideIndex === 1 || sideIndex === 3 || sideIndex === 5) {
-            adjustedDirection = direction === 'clockwise' ? 'counterclockwise' : 'clockwise';
-          }
-          updateCubeColorsAfterRotation(sideIndex, adjustedDirection);
+          updateCubeColorsAfterRotation(sideIndex, direction);
 
           // Force a render to update the scene
           rendererRef.current?.render(sceneRef.current!, cameraRef.current!);
@@ -296,37 +217,6 @@ const RubiksCubeViewer = forwardRef<{
   useImperativeHandle(ref, () => ({
     rotateSide,
   }));
-
-  function rotateFace(face: string[][], direction: 'clockwise' | 'counterclockwise'): string[][] {
-    const n = face.length;
-
-    // Step 1: Transpose the matrix
-    let rotated = Array.from({ length: n }, () => Array(n).fill(''));
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        rotated[i][j] = face[j][i];
-      }
-    }
-
-    // Step 2: Reverse rows or columns based on rotation direction
-    if (direction === 'clockwise') {
-      // Reverse each row
-      for (let i = 0; i < n; i++) {
-        rotated[i].reverse();
-      }
-    } else {
-      // Reverse each column
-      for (let j = 0; j < n; j++) {
-        for (let i = 0, k = n - 1; i < k; i++, k--) {
-          const temp = rotated[i][j];
-          rotated[i][j] = rotated[k][j];
-          rotated[k][j] = temp;
-        }
-      }
-    }
-
-    return rotated;
-  }
 
   const animateCameraToSide = useCallback((sideIndex: number) => {
     if (cameraRef.current && controlsRef.current) {
