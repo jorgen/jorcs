@@ -44,6 +44,6 @@ function(Fetch3rdParty)
     include(FetchContent)
     set(FETCHCONTENT_QUIET OFF)
     Fetch3rdParty_Package(fmt 11.0.2 https://github.com/fmtlib/fmt/archive/11.0.2.tar.gz SHA256=6cb1e6d37bdcb756dbbe59be438790db409cdb4868c66e888d5df9f13f7c027f)
-    Fetch3rdParty_Package(doctest 2.4.11 https://github.com/doctest/doctest/archive/refs/tags/v2.4.11.tar.gz SHA256=632ed2c05a7f53fa961381497bf8069093f0d6628c5f26286161fbd32a560186)
+    Fetch3rdParty_Package(doctest 2.4.12 https://github.com/doctest/doctest/archive/refs/tags/v2.4.12.tar.gz SHA256=73381c7aa4dee704bd935609668cf41880ea7f19fa0504a200e13b74999c2d70)
 endfunction()
 

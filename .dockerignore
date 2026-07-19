@@ -1,0 +1,10 @@
+.git
+.github
+**/node_modules
+frontend/dist
+frontend/.vite
+frontend/src/wasm/jorcs.js
+build*/
+solver/build*/
+_ext/
+*.log

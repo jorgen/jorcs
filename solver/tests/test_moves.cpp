@@ -65,30 +65,46 @@ TEST_CASE("Applying the same move four times returns to the original state")
   }
 }
 
-TEST_CASE("Move front and right has correct cycle order")
+TEST_CASE("Two interacting (edge-sharing) faces have cycle order 105")
 {
-  // The correct cycle order for F·R is 30
-  const int FR_CYCLE_LENGTH = 30;
-
-  Cube cube = createSolvedCube();
-  Cube expected_cube = cube;
-
-  // Apply F·R the cycle length number of times - should return to solved state
-  for (int i = 0; i < FR_CYCLE_LENGTH; i++)
+  // Rotating one face and then an adjacent face, repeated, returns the cube to the
+  // solved state after exactly 105 rounds (the order of e.g. R·U) and never in
+  // between. This holds for every pair of faces that share an edge, i.e. every pair
+  // that is not opposite. Opposite pairs (U/D, F/B, L/R) are excluded.
+  struct Pair
   {
-    applyMove(cube, F);
-    applyMove(cube, R);
-  }
-  CHECK(cubesAreEqual(cube, expected_cube));
+    Move a;
+    Move b;
+    const char *name;
+  };
+  const Pair pairs[] = {
+    {U, F, "U F"}, {U, B, "U B"}, {U, L, "U L"}, {U, R, "U R"},
+    {D, F, "D F"}, {D, B, "D B"}, {D, L, "D L"}, {D, R, "D R"},
+    {F, L, "F L"}, {F, R, "F R"}, {B, L, "B L"}, {B, R, "B R"},
+  };
 
-  // Apply F·R 15 times - should not return to solved state
-  cube = createSolvedCube();
-  for (int i = 0; i < 15; i++)
+  const Cube solved = createSolvedCube();
+  for (const Pair &pair : pairs)
   {
-    applyMove(cube, F);
-    applyMove(cube, R);
+    CAPTURE(pair.name);
+    Cube cube = createSolvedCube();
+    bool solved_in_between = false;
+    for (int i = 1; i <= 105; ++i)
+    {
+      applyMove(cube, pair.a);
+      applyMove(cube, pair.b);
+      const bool is_solved = cubesAreEqual(cube, solved);
+      if (i < 105 && is_solved)
+      {
+        solved_in_between = true;
+      }
+      if (i == 105)
+      {
+        CHECK(is_solved);
+      }
+    }
+    CHECK_FALSE(solved_in_between);
   }
-  CHECK_FALSE(cubesAreEqual(cube, expected_cube));
 }
 
 TEST_CASE("Testing commutator [R, U]")
@@ -131,29 +147,36 @@ TEST_CASE("Testing the Sexy Move sequence")
   CHECK(cubesAreEqual(original_cube, cube));
 }
 
-TEST_CASE("Testing that a known algorithm returns to the original state")
+TEST_CASE("A T-perm is an involution: once is not solved, twice returns to solved")
 {
   Cube cube = createSolvedCube();
   Cube original_cube = cube;
 
-  // Apply a known sequence that cycles back to the solved state
-  // This is a simplification of the T-perm algorithm
-  applyMove(cube, R);
-  applyMove(cube, U);
-  applyMove(cube, R_PRIME);
-  applyMove(cube, U_PRIME);
-  applyMove(cube, R_PRIME);
-  applyMove(cube, F);
-  applyMove(cube, R);
-  applyMove(cube, R);  // R2 implemented as R twice
-  applyMove(cube, U_PRIME);
-  applyMove(cube, R_PRIME);
-  applyMove(cube, U_PRIME);
-  applyMove(cube, R);
-  applyMove(cube, U);
-  applyMove(cube, R_PRIME);
-  applyMove(cube, F_PRIME);
+  // The T-perm swaps two corners and two edges, so it is its own inverse: one
+  // application does not return to solved, but two applications do.
+  for (int t = 0; t < 2; ++t)
+  {
+    applyMove(cube, R);
+    applyMove(cube, U);
+    applyMove(cube, R_PRIME);
+    applyMove(cube, U_PRIME);
+    applyMove(cube, R_PRIME);
+    applyMove(cube, F);
+    applyMove(cube, R);
+    applyMove(cube, R);  // R2 implemented as R twice
+    applyMove(cube, U_PRIME);
+    applyMove(cube, R_PRIME);
+    applyMove(cube, U_PRIME);
+    applyMove(cube, R);
+    applyMove(cube, U);
+    applyMove(cube, R_PRIME);
+    applyMove(cube, F_PRIME);
 
-  // Since we applied a known cube-solving algorithm, the cube should be back to the solved state
+    if (t == 0)
+    {
+      CHECK_FALSE(cubesAreEqual(original_cube, cube));
+    }
+  }
+
   CHECK(cubesAreEqual(original_cube, cube));
 }

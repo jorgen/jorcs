@@ -28,6 +28,6 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
   ],
-  base: '/jorcs/',
+  base: '/',
 
 });

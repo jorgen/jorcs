@@ -1,8 +1,13 @@
-/target
-**/*.rs.bk
-Cargo.lock
-bin/
-pkg/
-wasm-pack.log
-3rdparty
-cmake-build-debug
+# build
+build/
+build-*/
+cmake-build*/
+solver/build/
+3rdparty/
+
+# generated WASM (built from solver/wasm by emcmake)
+frontend/src/wasm/jorcs.js
+frontend/src/wasm/jorcs.wasm
+
+# TypeScript incremental build cache
+*.tsbuildinfo
