@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
+import IntroOverlay from './IntroOverlay';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
 import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './solver';
 
@@ -15,6 +16,24 @@ function invertMove(move: string): string {
   if (move.endsWith("'")) return move[0];
   if (move.endsWith('2')) return move;
   return move[0] + "'";
+}
+
+const INTRO_SEEN_KEY = 'jorcs-intro-seen';
+
+// True when the viewport is phone-sized, kept in sync as it changes.
+function useIsMobile(breakpoint = 768): boolean {
+  const query = `(max-width: ${breakpoint}px)`;
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setIsMobile(mql.matches);
+    mql.addEventListener('change', onChange);
+    setIsMobile(mql.matches);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+  return isMobile;
 }
 
 const RubiksCubeApp: React.FC = () => {
@@ -38,11 +57,32 @@ const RubiksCubeApp: React.FC = () => {
     setDetectionEnabled,
   } = useCubeStore();
 
+  const isMobile = useIsMobile();
+
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   // The current solution and how many of its moves have been applied so far.
   const [solution, setSolution] = useState<string[]>([]);
   const [step, setStep] = useState(0);
+  const [showIntro, setShowIntro] = useState(false);
+
+  // Show the how-it-works overlay on the first visit.
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem(INTRO_SEEN_KEY)) setShowIntro(true);
+    } catch {
+      setShowIntro(true);
+    }
+  }, []);
+
+  const closeIntro = () => {
+    setShowIntro(false);
+    try {
+      localStorage.setItem(INTRO_SEEN_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Read rotateSide fresh each call so the animated turns stay consistent.
   const rotate = (side: number, direction: 'clockwise' | 'counterclockwise') => cubeViewerRef.current?.rotateSide(side, direction);
@@ -165,102 +205,141 @@ const RubiksCubeApp: React.FC = () => {
 
   const solved = solution.length > 0 && step === solution.length;
 
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-      }}
-    >
-      <div style={{ flex: '1 1 300px' }}>
-        <RubiksCubeRecognizer
-          currentSide={currentSide}
-          detectionEnabled={detectionEnabled}
-          overlayData={overlayData}
-          onOverlayDataCaptured={handleOverlayDataCaptured}
-          onOverlayDataUpdated={handleOverlayDataUpdated}
-        />
-        <div style={{ marginTop: '10px' }}>
-          <p>Side {currentSide + 1} captured. What would you like to do?</p>
-          <button onClick={handlePreviousSide}>Previous Side</button>
-          <button onClick={handleRetake}>Retake</button>
-          <button onClick={handleNextSide}>Next Side</button>
-        </div>
-        <div style={{ marginTop: '12px' }}>
-          <button onClick={handleScramble} disabled={busy}>
-            Scramble
-          </button>
-          <button onClick={handleSolve} disabled={busy} style={{ marginLeft: '8px' }}>
-            Solve
-          </button>
-          {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
-        </div>
-
-        {solution.length > 0 && (
-          <div
-            style={{
-              marginTop: '14px',
-              padding: '12px',
-              border: '1px solid #ccc',
-              borderRadius: '8px',
-              maxWidth: '420px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <strong>Solution</strong>
-              <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>
-                {solved ? 'done' : `move ${step + 1} of ${solution.length}`}
-              </span>
-            </div>
-
-            <div style={{ fontSize: '2rem', textAlign: 'center', margin: '8px 0', minHeight: '2.4rem' }}>
-              {solved ? '✓ Solved' : solution[step]}
-            </div>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
-              {solution.map((move, index) => (
-                <span
-                  key={index}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    fontFamily: 'monospace',
-                    fontSize: '0.85rem',
-                    background: index === step ? '#ffd500' : 'transparent',
-                    color: index < step ? '#999' : index === step ? '#000' : 'inherit',
-                    border: '1px solid #ddd',
-                  }}
-                >
-                  {move}
-                </span>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={stepBack} disabled={busy || step === 0}>
-                ◀ Previous
-              </button>
-              <button onClick={stepForward} disabled={busy || solved}>
-                Next ▶
-              </button>
-              <button onClick={playRest} disabled={busy || solved} style={{ marginLeft: 'auto' }}>
-                Play all
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-      <div style={{ flex: '1 1 300px' }}>
-        <RubiksCubeViewer
-          ref={cubeViewerRef}
-          cubeColors={cubeColors}
-          setCubeColors={setCubeColors}
-          currentSide={currentSide}
-          setCurrentSide={setNewSide}
-        />
+  const scannerBlock = (
+    <div>
+      <RubiksCubeRecognizer
+        currentSide={currentSide}
+        detectionEnabled={detectionEnabled}
+        overlayData={overlayData}
+        onOverlayDataCaptured={handleOverlayDataCaptured}
+        onOverlayDataUpdated={handleOverlayDataUpdated}
+      />
+      <div style={{ marginTop: '10px' }}>
+        <p style={{ margin: '0 0 8px' }}>Side {currentSide + 1} of 6 — show the next face, then:</p>
+        <button onClick={handlePreviousSide}>Previous Side</button>
+        <button onClick={handleRetake} style={{ marginLeft: '8px' }}>Retake</button>
+        <button onClick={handleNextSide} style={{ marginLeft: '8px' }}>Next Side</button>
       </div>
     </div>
+  );
+
+  const cubeBlock = (
+    <div
+      style={{
+        width: '100%',
+        maxWidth: isMobile ? '100%' : '460px',
+        aspectRatio: '1 / 1',
+        margin: '0 auto',
+      }}
+    >
+      <RubiksCubeViewer
+        ref={cubeViewerRef}
+        cubeColors={cubeColors}
+        setCubeColors={setCubeColors}
+        currentSide={currentSide}
+        setCurrentSide={setNewSide}
+      />
+    </div>
+  );
+
+  const controlsBlock = (
+    <div style={{ marginTop: '12px' }}>
+      <button onClick={handleScramble} disabled={busy}>
+        Scramble
+      </button>
+      <button onClick={handleSolve} disabled={busy} style={{ marginLeft: '8px' }}>
+        Solve
+      </button>
+      {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
+
+      {solution.length > 0 && (
+        <div
+          style={{
+            marginTop: '14px',
+            padding: '12px',
+            border: '1px solid #ccc',
+            borderRadius: '8px',
+            maxWidth: '440px',
+            marginLeft: 'auto',
+            marginRight: 'auto',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <strong>Solution</strong>
+            <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>
+              {solved ? 'done' : `move ${step + 1} of ${solution.length}`}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '2rem', textAlign: 'center', margin: '8px 0', minHeight: '2.4rem' }}>
+            {solved ? '✓ Solved' : solution[step]}
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
+            {solution.map((move, index) => (
+              <span
+                key={index}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontFamily: 'monospace',
+                  fontSize: '0.85rem',
+                  background: index === step ? '#ffd500' : 'transparent',
+                  color: index < step ? '#999' : index === step ? '#000' : 'inherit',
+                  border: '1px solid #ddd',
+                }}
+              >
+                {move}
+              </span>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={stepBack} disabled={busy || step === 0}>
+              ◀ Previous
+            </button>
+            <button onClick={stepForward} disabled={busy || solved}>
+              Next ▶
+            </button>
+            <button onClick={playRest} disabled={busy || solved} style={{ marginLeft: 'auto' }}>
+              Play all
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+        <button
+          onClick={() => setShowIntro(true)}
+          title="How it works"
+          style={{ padding: '0.3em 0.7em', borderRadius: '50%' }}
+        >
+          ?
+        </button>
+      </div>
+
+      {isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {scannerBlock}
+          {cubeBlock}
+          {controlsBlock}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'row', gap: '20px', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 320px' }}>
+            {scannerBlock}
+            {controlsBlock}
+          </div>
+          <div style={{ flex: '1 1 320px' }}>{cubeBlock}</div>
+        </div>
+      )}
+
+      {showIntro && <IntroOverlay onClose={closeIntro} />}
+    </>
   );
 };
 
