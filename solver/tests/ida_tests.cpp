@@ -104,3 +104,45 @@ TEST_CASE("IDA*: optimal length matches the BFS oracle on random scrambles")
     CHECK(solves(cube, ida_result.moves));
   }
 }
+
+TEST_CASE("IDA*: the heuristic is admissible (never exceeds the optimal length)")
+{
+  IdaSolver &ida = sharedIda();
+  BfsSolver bfs(4000000);
+
+  std::mt19937 rng(999u);
+  std::uniform_int_distribution<int> depth_dist(3, 6);
+  std::uniform_int_distribution<int> move_dist(0, 11);
+
+  for (int trial = 0; trial < 12; ++trial)
+  {
+    CAPTURE(trial);
+    std::vector<Move> scramble;
+    const int depth = depth_dist(rng);
+    for (int i = 0; i < depth; ++i)
+    {
+      scramble.push_back(static_cast<Move>(move_dist(rng)));
+    }
+    const Cube cube = scrambledBy(scramble);
+
+    SolveResult bfs_result = bfs.solve(cube, 8);
+    REQUIRE(bfs_result.solved());
+    // A heuristic that overestimated would prune the optimal path.
+    CHECK(ida.heuristic(cube) <= static_cast<int>(bfs_result.moves.size()));
+  }
+}
+
+TEST_CASE("IDA*: the edge databases bound a state that corners alone cannot (superflip)")
+{
+  IdaSolver &ida = sharedIda();
+
+  // Superflip: every piece is in its home slot, but all 12 edges are flipped. The
+  // corners are solved, so a corner-only heuristic would be 0; the edge databases
+  // must see the flips.
+  Cube superflip;
+  for (int i = 0; i < 12; ++i)
+  {
+    superflip.edge_ori[i] = 1;
+  }
+  CHECK(ida.heuristic(superflip) > 0);
+}
