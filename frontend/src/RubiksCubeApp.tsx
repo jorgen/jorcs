@@ -47,7 +47,7 @@ const RubiksCubeApp: React.FC = () => {
     setStatus('Scrambling…');
     setCubeColors(solvedCubeColors());
     await new Promise((resolve) => setTimeout(resolve, 120));
-    const moves = randomScramble(20);
+    const moves = randomScramble(13);
     setScramble(moves.join(' '));
     await playMoves(moves, rotate);
     setStatus('Scrambled — press Solve for the optimal solution.');

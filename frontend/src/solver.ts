@@ -99,8 +99,11 @@ export async function playMoves(moves: string[], rotateSide: RotateSide, stepMs 
   }
 }
 
-// A random scramble as a move string, avoiding turning the same face twice in a row.
-export function randomScramble(length = 20): string[] {
+// A random scramble as a move string, avoiding turning the same face twice in a
+// row. The default length is kept modest: the solver is OPTIMAL (exponential in
+// solution depth), and a deeper scramble makes the solve take seconds-to-minutes
+// on the main thread — at 13 the worst-case optimal solve stays under ~100 ms.
+export function randomScramble(length = 13): string[] {
   const moves: string[] = [];
   let previousFace = '';
   for (let i = 0; i < length; i++) {

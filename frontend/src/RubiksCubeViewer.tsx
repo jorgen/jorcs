@@ -6,7 +6,9 @@ import OrbitControls from './OrbitControls.ts';
 type RubiksCubeViewerProps = {
   cubeColors: string[][][]; // 3D array of colors for each face
   currentSide: number; // Index of the current side being scanned
-  setCubeColors: (newColors: string[][][]) => void; // Callback to update cubeColors
+  setCubeColors: (
+    newColors: string[][][] | ((prev: string[][][]) => string[][][]),
+  ) => void; // Callback to update cubeColors (accepts a functional updater)
   setCurrentSide: (side: number) => void; // Callback to update currentSide
 };
 
@@ -114,7 +116,12 @@ const RubiksCubeViewer = forwardRef<{
 
   const updateCubeColorsAfterRotation = useCallback(
     (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => {
-      const newCubeColors = cubeColors.map((face) => face.map((row) => [...row]));
+      // Apply the turn to the LATEST committed colors via a functional update.
+      // Reading from a captured `cubeColors` closure would race when moves are
+      // animated back-to-back (scramble/solve): one turn's repaint could clobber
+      // the previous, making stickers "switch" after the animation.
+      setCubeColors((prev) => {
+      const newCubeColors = prev.map((face) => face.map((row) => [...row]));
 
       // Rotate the face itself
       newCubeColors[sideIndex] = rotateFace(newCubeColors[sideIndex], direction);
@@ -191,9 +198,10 @@ const RubiksCubeViewer = forwardRef<{
           break;
       }
 
-      setCubeColors(newCubeColors);
+      return newCubeColors;
+      });
     },
-    [cubeColors, setCubeColors],
+    [setCubeColors],
   );
 
   const rotateSide = useCallback(
