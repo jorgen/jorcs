@@ -28,6 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <jorcs/cube.h>
 #include <jorcs/ida.h>
 #include <jorcs/move.h>
+#include <jorcs/two_phase.h>
 
 using namespace emscripten;
 
@@ -177,8 +178,9 @@ std::string solveScramble(const std::string &scramble)
   return solutionOf(cube);
 }
 
-// Solve a cube given directly as the cubie model (corner/edge positions + orientations).
-std::string solveState(const val &corner_pos, const val &corner_ori, const val &edge_pos, const val &edge_ori)
+// Reconstruct a Cube from the four cubie arrays, or report a size mismatch.
+bool cubeFromArrays(const val &corner_pos, const val &corner_ori, const val &edge_pos,
+                    const val &edge_ori, Cube &cube)
 {
   const std::vector<uint8_t> cp = bytesFrom(corner_pos);
   const std::vector<uint8_t> co = bytesFrom(corner_ori);
@@ -186,9 +188,8 @@ std::string solveState(const val &corner_pos, const val &corner_ori, const val &
   const std::vector<uint8_t> eo = bytesFrom(edge_ori);
   if (cp.size() != 8 || co.size() != 8 || ep.size() != 12 || eo.size() != 12)
   {
-    return std::string("ERROR:bad-state");
+    return false;
   }
-  Cube cube;
   for (int i = 0; i < 8; ++i)
   {
     cube.corner_pos[i] = cp[i];
@@ -199,7 +200,89 @@ std::string solveState(const val &corner_pos, const val &corner_ori, const val &
     cube.edge_pos[i] = ep[i];
     cube.edge_ori[i] = eo[i];
   }
+  return true;
+}
+
+// Solve a cube given directly as the cubie model (corner/edge positions + orientations).
+std::string solveState(const val &corner_pos, const val &corner_ori, const val &edge_pos, const val &edge_ori)
+{
+  Cube cube;
+  if (!cubeFromArrays(corner_pos, corner_ori, edge_pos, edge_ori, cube))
+  {
+    return std::string("ERROR:bad-state");
+  }
   return solutionOf(cube);
+}
+
+// --- Kociemba two-phase solver ---
+//
+// Near-optimal (~20-24 half turns) but solves ANY cube in milliseconds with a few
+// MB of tables built in-place (no external pattern-database download). Solutions
+// are returned in half-turn metric, e.g. "U R2 F' D2 ...".
+
+std::unique_ptr<jorcs::two_phase::TwoPhaseSolver> g_two_phase;
+
+// Build the two-phase tables (a few hundred ms). Idempotent; call once up front.
+void initTwoPhase()
+{
+  if (!g_two_phase)
+  {
+    g_two_phase = std::make_unique<jorcs::two_phase::TwoPhaseSolver>();
+  }
+}
+
+bool twoPhaseReady()
+{
+  return g_two_phase != nullptr;
+}
+
+std::string twoPhaseSolutionOf(const Cube &cube)
+{
+  initTwoPhase();
+  const auto result = g_two_phase->solve(cube);
+  if (!result.solved)
+  {
+    return std::string("ERROR:unsolved");
+  }
+  std::string out;
+  for (std::size_t i = 0; i < result.moves.size(); ++i)
+  {
+    if (i != 0)
+    {
+      out += ' ';
+    }
+    out += jorcs::two_phase::moveName(result.moves[i]);
+  }
+  return out;
+}
+
+// Two-phase solve of the cube reached by applying a (quarter-turn) scramble to the
+// solved cube. Returns a half-turn-metric solution.
+std::string twoPhaseSolveScramble(const std::string &scramble)
+{
+  Cube cube;
+  std::istringstream stream(scramble);
+  std::string token;
+  while (stream >> token)
+  {
+    const int move = lookupMove(token);
+    if (move >= 0)
+    {
+      applyMove(cube, static_cast<Move>(move));
+    }
+  }
+  return twoPhaseSolutionOf(cube);
+}
+
+// Two-phase solve of a cube given directly as the cubie model (for a scanned cube).
+std::string twoPhaseSolveState(const val &corner_pos, const val &corner_ori, const val &edge_pos, const val &edge_ori)
+{
+  Cube cube;
+  if (!cubeFromArrays(corner_pos, corner_ori, edge_pos, edge_ori, cube))
+  {
+    return std::string("ERROR:bad-state");
+  }
+  return twoPhaseSolutionOf(cube);
 }
 } // namespace
 
@@ -237,4 +320,9 @@ EMSCRIPTEN_BINDINGS(jorcs)
   function("solverReady", &solverReady);
   function("solveScramble", &solveScramble);
   function("solveState", &solveState);
+
+  function("initTwoPhase", &initTwoPhase);
+  function("twoPhaseReady", &twoPhaseReady);
+  function("twoPhaseSolveScramble", &twoPhaseSolveScramble);
+  function("twoPhaseSolveState", &twoPhaseSolveState);
 }

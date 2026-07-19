@@ -54,12 +54,21 @@ export interface JorcsModule {
   applyScramble(sequence: string): Cube;
   version(): string;
 
-  // Loads the prebuilt (decompressed) pattern databases so the solver is ready.
+  // Optimal solver (Korf/IDA*). Loads the prebuilt (decompressed) pattern
+  // databases; slow for deep cubes, so used only for shallow demos.
   loadSolver(corner: Uint8Array, edgeA: Uint8Array, edgeB: Uint8Array): void;
   solverReady(): boolean;
   // Returns a space-separated optimal solution, or "ERROR:..." on failure.
   solveScramble(scramble: string): string;
   solveState(cornerPos: Uint8Array, cornerOri: Uint8Array, edgePos: Uint8Array, edgeOri: Uint8Array): string;
+
+  // Kociemba two-phase solver: near-optimal (~20-24 half turns), solves ANY cube
+  // in milliseconds with tables built in-place (no pattern-database download).
+  initTwoPhase(): void;
+  twoPhaseReady(): boolean;
+  // Half-turn-metric solution (e.g. "U R2 F' D2 ..."), or "ERROR:..." on failure.
+  twoPhaseSolveScramble(scramble: string): string;
+  twoPhaseSolveState(cornerPos: Uint8Array, cornerOri: Uint8Array, edgePos: Uint8Array, edgeOri: Uint8Array): string;
 }
 
 declare const createJorcsModule: (options?: Record<string, unknown>) => Promise<JorcsModule>;

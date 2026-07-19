@@ -239,7 +239,7 @@ const RubiksCubeViewer = forwardRef<{
 
       // Animate the rotation
       let startTime: number | null = null;
-      const duration = 500; // in milliseconds
+      const duration = 300; // in milliseconds
 
       const animateRotation = (timestamp: number) => {
         if (!startTime) startTime = timestamp;

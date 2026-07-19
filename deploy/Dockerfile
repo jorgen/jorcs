@@ -13,16 +13,6 @@ RUN emcmake cmake -S wasm -B /wasm-build -DCMAKE_BUILD_TYPE=Release \
  && cmake --build /wasm-build \
  && test -f /wasm-build/jorcs.js
 
-# ---------- pattern databases (generate + gzip; shipped as static assets) ----------
-FROM ubuntu:24.04 AS pdb
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends g++-14 gzip \
- && rm -rf /var/lib/apt/lists/*
-COPY solver /solver
-RUN g++-14 -O3 -std=c++23 -fno-rtti -fno-exceptions -I /solver/src /solver/tools/pdbgen.cpp -o /pdbgen \
- && mkdir -p /pdb && /pdbgen /pdb \
- && gzip -9 /pdb/corner.pdb /pdb/edge_a.pdb /pdb/edge_b.pdb
-
 # ---------- SPA ----------
 FROM node:20-slim AS web
 WORKDIR /web
@@ -30,8 +20,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 COPY --from=wasm /wasm-build/jorcs.js ./src/wasm/jorcs.js
-COPY --from=pdb /pdb/ ./public/pdb/
-RUN npm run build   # tsc -b && vite build -> /web/dist (public/pdb/*.gz -> dist/pdb/)
+RUN npm run build   # tsc -b && vite build -> /web/dist
 
 # ---------- backend (prism static-file server) ----------
 FROM ubuntu:24.04 AS build
