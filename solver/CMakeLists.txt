@@ -57,6 +57,9 @@ Build3rdParty()
 
 add_subdirectory(src)
 
+add_executable(pdbgen tools/pdbgen.cpp)
+target_link_libraries(pdbgen PRIVATE jorcs)
+
 if (BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

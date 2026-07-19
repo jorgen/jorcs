@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include <jorcs/cube.h>
@@ -363,50 +364,105 @@ inline std::vector<uint8_t> generateEdgePdb(const EdgeMoveTables &tables, int so
   }
   return pdb;
 }
+
+constexpr uint8_t kEdgeGroupA[6] = {0, 1, 2, 3, 4, 5};
+constexpr uint8_t kEdgeGroupB[6] = {6, 7, 8, 9, 10, 11};
+
+// The three pattern databases, each 4-bit-packed (every distance fits in a nibble,
+// so this halves the memory to ~86 MB). Solving reads them; nothing else is needed.
+struct PatternDatabases
+{
+  std::vector<uint8_t> corner; // (kCornerStates + 1) / 2 bytes
+  std::vector<uint8_t> edge_a; // (kEdgeStates + 1) / 2 bytes
+  std::vector<uint8_t> edge_b;
+
+  static uint8_t nibble(const std::vector<uint8_t> &packed, int index)
+  {
+    return (packed[static_cast<std::size_t>(index) >> 1] >> ((index & 1) << 2)) & 0x0F;
+  }
+};
+
+inline std::vector<uint8_t> packNibbles(const std::vector<uint8_t> &distances)
+{
+  std::vector<uint8_t> packed((distances.size() + 1) / 2, 0);
+  for (std::size_t i = 0; i < distances.size(); ++i)
+  {
+    packed[i >> 1] |= static_cast<uint8_t>((distances[i] & 0x0F) << ((i & 1) << 2));
+  }
+  return packed;
+}
+
+// Build all three databases from scratch (~19 s). Used by the prebuild tool and by
+// the native tests; the browser loads the prebuilt copies instead.
+inline PatternDatabases generatePatternDatabases()
+{
+  const CornerMoveTables corner_tables;
+  const EdgeMoveTables edge_tables;
+  const Cube solved;
+
+  int pos_a = 0;
+  int ori_a = 0;
+  int pos_b = 0;
+  int ori_b = 0;
+  edgeGroupCoord(solved, kEdgeGroupA, pos_a, ori_a);
+  edgeGroupCoord(solved, kEdgeGroupB, pos_b, ori_b);
+
+  PatternDatabases pdbs;
+  pdbs.corner = packNibbles(generateCornerPdb(corner_tables));
+  pdbs.edge_a = packNibbles(generateEdgePdb(edge_tables, pos_a * kEdgeOriCount + ori_a));
+  pdbs.edge_b = packNibbles(generateEdgePdb(edge_tables, pos_b * kEdgeOriCount + ori_b));
+  return pdbs;
+}
+
+constexpr std::size_t kCornerPackedBytes = (static_cast<std::size_t>(kCornerStates) + 1) / 2;
+constexpr std::size_t kEdgePackedBytes = (static_cast<std::size_t>(kEdgeStates) + 1) / 2;
+
+// Wrap already-packed database bytes (the prebuilt, decompressed files) for solving.
+inline PatternDatabases loadPatternDatabases(std::vector<uint8_t> corner, std::vector<uint8_t> edge_a, std::vector<uint8_t> edge_b)
+{
+  PatternDatabases pdbs;
+  pdbs.corner = std::move(corner);
+  pdbs.edge_a = std::move(edge_a);
+  pdbs.edge_b = std::move(edge_b);
+  return pdbs;
+}
 } // namespace jorcs::ida_detail
 
-// Optimal solver: IDA* (iterative-deepening DFS bounded by g + h) using an
-// admissible corner pattern-database heuristic. The heuristic is the exact number
-// of moves to solve just the 8 corners, which is a lower bound on solving the whole
-// cube, so the first solution found is optimal. Memory is O(depth) for the search
-// plus the fixed ~88 MB corner database (generated once in the constructor). Corners
-// alone give weak guidance on edge-heavy scrambles, so the heuristic also uses two
-// 6-edge pattern databases (edges 0-5 and edges 6-11) and takes the maximum of the
-// three admissible lower bounds. The databases (~88 MB + 2 x ~42 MB) are generated
-// once in the constructor.
+// Optimal solver: IDA* (iterative-deepening DFS bounded by g + h). The heuristic is
+// max(corner PDB, two 6-edge PDBs) — an admissible lower bound, so the first solution
+// found is optimal. Memory is O(depth) for the search plus the three 4-bit-packed
+// databases (~86 MB total). Default-construct to build them (~19 s); construct from a
+// PatternDatabases to load prebuilt copies.
 class IdaSolver
 {
 public:
   IdaSolver()
-    : corner_tables_()
-    , corner_pdb_(jorcs::ida_detail::generateCornerPdb(corner_tables_))
-    , edge_tables_()
+    : IdaSolver(jorcs::ida_detail::generatePatternDatabases())
   {
-    const Cube solved;
-    int pos_coord = 0;
-    int ori_coord = 0;
-    jorcs::ida_detail::edgeGroupCoord(solved, kGroupA, pos_coord, ori_coord);
-    edge_a_pdb_ = jorcs::ida_detail::generateEdgePdb(edge_tables_, pos_coord * jorcs::ida_detail::kEdgeOriCount + ori_coord);
-    jorcs::ida_detail::edgeGroupCoord(solved, kGroupB, pos_coord, ori_coord);
-    edge_b_pdb_ = jorcs::ida_detail::generateEdgePdb(edge_tables_, pos_coord * jorcs::ida_detail::kEdgeOriCount + ori_coord);
+  }
+
+  explicit IdaSolver(jorcs::ida_detail::PatternDatabases pdbs)
+    : pdbs_(std::move(pdbs))
+  {
   }
 
   // An admissible lower bound on the number of moves to solve the cube: the maximum
   // of the corner and two edge-group pattern-database distances.
   int heuristic(const Cube &cube) const
   {
-    int h = corner_pdb_[jorcs::ida_detail::cornerIndex(cube)];
+    namespace detail = jorcs::ida_detail;
+    int h = detail::PatternDatabases::nibble(pdbs_.corner, detail::cornerIndex(cube));
 
     int pos_coord = 0;
     int ori_coord = 0;
-    jorcs::ida_detail::edgeGroupCoord(cube, kGroupA, pos_coord, ori_coord);
-    const int ha = edge_a_pdb_[pos_coord * jorcs::ida_detail::kEdgeOriCount + ori_coord];
+    detail::edgeGroupCoord(cube, detail::kEdgeGroupA, pos_coord, ori_coord);
+    const int ha = detail::PatternDatabases::nibble(pdbs_.edge_a, pos_coord * detail::kEdgeOriCount + ori_coord);
     if (ha > h)
     {
       h = ha;
     }
-    jorcs::ida_detail::edgeGroupCoord(cube, kGroupB, pos_coord, ori_coord);
-    const int hb = edge_b_pdb_[pos_coord * jorcs::ida_detail::kEdgeOriCount + ori_coord];
+    detail::edgeGroupCoord(cube, detail::kEdgeGroupB, pos_coord, ori_coord);
+    const int hb = detail::PatternDatabases::nibble(pdbs_.edge_b, pos_coord * detail::kEdgeOriCount + ori_coord);
     if (hb > h)
     {
       h = hb;
@@ -438,8 +494,6 @@ public:
 private:
   static constexpr int kFound = -1;
   static constexpr int kInfinity = 1000000;
-  static constexpr uint8_t kGroupA[6] = {0, 1, 2, 3, 4, 5};
-  static constexpr uint8_t kGroupB[6] = {6, 7, 8, 9, 10, 11};
 
   int search(const Cube &cube, const Cube &solved, int g, int bound, int prev_move, std::vector<Move> &path)
   {
@@ -477,9 +531,5 @@ private:
     return min;
   }
 
-  jorcs::ida_detail::CornerMoveTables corner_tables_;
-  std::vector<uint8_t> corner_pdb_;
-  jorcs::ida_detail::EdgeMoveTables edge_tables_;
-  std::vector<uint8_t> edge_a_pdb_;
-  std::vector<uint8_t> edge_b_pdb_;
+  jorcs::ida_detail::PatternDatabases pdbs_;
 };
