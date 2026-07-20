@@ -27,6 +27,31 @@ type RubiksCubeRecognizerProps = {
 
 declare const cv: any; // Declare OpenCV.js
 
+// Draw the video to fill the target rect while preserving its aspect ratio
+// (cover: crop the overflow instead of stretching). Without this the camera feed
+// is squashed to the fixed 640x480 canvas, so on a portrait phone a physical
+// square cube can't line up with the square detection grid. The same crop is used
+// for the preview, the alignment detection and the capture so they stay in sync.
+function drawVideoCover(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  width: number,
+  height: number,
+) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) {
+    ctx.drawImage(video, 0, 0, width, height);
+    return;
+  }
+  const scale = Math.max(width / vw, height / vh);
+  const sw = width / scale;
+  const sh = height / scale;
+  const sx = (vw - sw) / 2;
+  const sy = (vh - sh) / 2;
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
+}
+
 const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
                                                                      currentSide,
                                                                      detectionEnabled,
@@ -99,7 +124,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
           ctx.scale(-1, 1);
 
           // Draw the video frame onto the canvas (now flipped)
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          drawVideoCover(ctx, videoRef.current, canvas.width, canvas.height);
 
           // Restore the context to its original state
           ctx.restore();
@@ -251,7 +276,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     offscreenCanvas.height = canvas.height;
     const offscreenCtx = offscreenCanvas.getContext('2d');
     if (offscreenCtx && videoRef.current) {
-      offscreenCtx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      drawVideoCover(offscreenCtx, videoRef.current, canvas.width, canvas.height);
       const imageData = offscreenCtx.getImageData(
         gridX,
         gridY,
@@ -426,7 +451,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     offscreenCanvas.height = canvas.height;
     const offscreenCtx = offscreenCanvas.getContext('2d');
     if (offscreenCtx && videoRef.current) {
-      offscreenCtx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      drawVideoCover(offscreenCtx, videoRef.current, canvas.width, canvas.height);
 
       const result = recognizeColorsFromGrid(offscreenCtx, offscreenCanvas);
       // Pass the overlay data to the parent via callback

@@ -66,6 +66,10 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
     this.domElement.addEventListener('touchend', this.onTouchEnd);
     this.domElement.addEventListener('touchmove', this.onTouchMove, { passive: false });
 
+    // Let a one-finger vertical drag scroll the page; two-finger gestures below
+    // preventDefault to rotate the cube instead.
+    this.domElement.style.touchAction = 'pan-y';
+
     this.object.lookAt(this.target);
   }
 
@@ -180,42 +184,37 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   private onTouchStart(event: TouchEvent) {
     if (!this.enabled) return;
 
-    switch (event.touches.length) {
-      case 1: // One-finger touch: rotate
-        if (!this.enableRotate) return;
-        this.handleTouchStartRotate(event);
-        this.state = 'rotate';
-        break;
-      case 2: // Two-finger touch: zoom
-        if (!this.enableZoom) return;
-        this.handleTouchStartDolly(event);
-        this.state = 'dolly';
-        break;
-      case 3: // Three-finger touch: pan
-        if (!this.enablePan) return;
-        this.handleTouchStartPan(event);
-        this.state = 'pan';
-        break;
+    // Two fingers rotate the cube; one finger is left to the browser so the page
+    // can scroll past the 3-D view.
+    if (event.touches.length === 2) {
+      if (!this.enableRotate) return;
+      event.preventDefault();
+      this.handleTouchStartRotate(event);
+      this.state = 'rotate';
+    } else {
+      this.state = '';
     }
   }
 
   private onTouchMove(event: TouchEvent) {
     if (!this.enabled) return;
 
-    switch (this.state) {
-      case 'rotate':
-        if (!this.enableRotate) return;
-        this.handleTouchMoveRotate(event);
-        break;
-      case 'dolly':
-        if (!this.enableZoom) return;
-        this.handleTouchMoveDolly(event);
-        break;
-      case 'pan':
-        if (!this.enablePan) return;
-        this.handleTouchMovePan(event);
-        break;
+    if (this.state === 'rotate' && event.touches.length === 2) {
+      if (!this.enableRotate) return;
+      event.preventDefault();
+      this.handleTouchMoveRotate(event);
     }
+  }
+
+  // The midpoint of a two-finger touch, used to track a two-finger drag as a rotate.
+  private touchCenter(event: TouchEvent): { x: number; y: number } {
+    if (event.touches.length >= 2) {
+      return {
+        x: (event.touches[0].pageX + event.touches[1].pageX) / 2,
+        y: (event.touches[0].pageY + event.touches[1].pageY) / 2,
+      };
+    }
+    return { x: event.touches[0].pageX, y: event.touches[0].pageY };
   }
 
   private onTouchEnd(_event: TouchEvent) {
@@ -248,11 +247,13 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
   }
 
   private handleTouchStartRotate(event: TouchEvent) {
-    this.rotateStart.set(event.touches[0].pageX, event.touches[0].pageY);
+    const center = this.touchCenter(event);
+    this.rotateStart.set(center.x, center.y);
   }
 
   private handleTouchMoveRotate(event: TouchEvent) {
-    this.rotateEnd.set(event.touches[0].pageX, event.touches[0].pageY);
+    const center = this.touchCenter(event);
+    this.rotateEnd.set(center.x, center.y);
 
     this.rotateDelta.subVectors(this.rotateEnd, this.rotateStart);
 
@@ -318,31 +319,6 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
     this.update();
   }
 
-  private handleTouchStartDolly(event: TouchEvent) {
-    const dx = event.touches[0].pageX - event.touches[1].pageX;
-    const dy = event.touches[0].pageY - event.touches[1].pageY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    this.dollyStart.set(0, distance);
-  }
-
-  private handleTouchMoveDolly(event: TouchEvent) {
-    const dx = event.touches[0].pageX - event.touches[1].pageX;
-    const dy = event.touches[0].pageY - event.touches[1].pageY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    this.dollyEnd.set(0, distance);
-
-    const dollyScale = this.dollyEnd.y / this.dollyStart.y;
-    if (dollyScale > 1) {
-      this.dollyOut(dollyScale);
-    } else if (dollyScale < 1) {
-      this.dollyIn(dollyScale);
-    }
-
-    this.dollyStart.copy(this.dollyEnd);
-
-    this.update();
-  }
-
   private dollyIn(dollyScale: number) {
     this.scale /= dollyScale;
   }
@@ -357,22 +333,6 @@ class OrbitControls extends THREE.EventDispatcher<OrbitControlsEventMap> {
 
   private handleMouseMovePan(event: MouseEvent) {
     this.panEnd.set(event.clientX, event.clientY);
-
-    this.panDelta.subVectors(this.panEnd, this.panStart).multiplyScalar(this.panSpeed);
-
-    this.pan(this.panDelta.x, this.panDelta.y);
-
-    this.panStart.copy(this.panEnd);
-
-    this.update();
-  }
-
-  private handleTouchStartPan(event: TouchEvent) {
-    this.panStart.set(event.touches[0].pageX, event.touches[0].pageY);
-  }
-
-  private handleTouchMovePan(event: TouchEvent) {
-    this.panEnd.set(event.touches[0].pageX, event.touches[0].pageY);
 
     this.panDelta.subVectors(this.panEnd, this.panStart).multiplyScalar(this.panSpeed);
 
