@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import { flushSync } from 'react-dom';
 import * as THREE from 'three';
 import ColorPicker from './ColorPicker.tsx';
 import OrbitControls from './OrbitControls.ts';
@@ -106,7 +107,11 @@ const RubiksCubeViewer = forwardRef<{
         return faces;
       };
 
-      setCubeColors((prev) => {
+      // flushSync so the new colours are committed and repainted (via the
+      // useLayoutEffect below) synchronously, in the same frame the geometry is
+      // finalized -- otherwise the forced render at the end of the turn shows the
+      // moved cubies with their old stickers for a frame (a flicker).
+      flushSync(() => setCubeColors((prev) => {
         const next = prev.map((face) => face.map((row) => [...row]));
         for (let x = -1; x <= 1; x++) {
           for (let y = -1; y <= 1; y++) {
@@ -124,7 +129,7 @@ const RubiksCubeViewer = forwardRef<{
           }
         }
         return next;
-      });
+      }));
     },
     [setCubeColors],
   );
@@ -454,8 +459,10 @@ const RubiksCubeViewer = forwardRef<{
     }
   }, []);
 
-  // Update cubies materials when cubeColors change
-  useEffect(() => {
+  // Repaint the cubies from the colour grid. useLayoutEffect (not useEffect) so it
+  // runs synchronously inside the flushSync above, keeping colours in lockstep with
+  // the finalized geometry (no end-of-turn flicker).
+  useLayoutEffect(() => {
     if (cubiesRef.current) {
       cubiesRef.current.forEach((cubie) => {
         const x = Math.round(cubie.position.x);
