@@ -4,19 +4,7 @@ import RubiksCubeViewer from './RubiksCubeViewer';
 import IntroOverlay from './IntroOverlay';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
 import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './solver';
-
-// Solved-cube colours in the viewer's side order: 0=R 1=L 2=U 3=D 4=F 5=B.
-const FACE_COLORS = ['#c41e3a', '#ff7f00', '#ffffff', '#ffd500', '#009e60', '#0051ba'];
-function solvedCubeColors(): string[][][] {
-  return FACE_COLORS.map((color) => Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => color)));
-}
-
-// The move that undoes a given move (for stepping backwards): X <-> X', X2 <-> X2.
-function invertMove(move: string): string {
-  if (move.endsWith("'")) return move[0];
-  if (move.endsWith('2')) return move;
-  return move[0] + "'";
-}
+import { blankCubeColors, colorsAfterMoves, invertMove, solvedCubeColors } from './cubeColors';
 
 const INTRO_SEEN_KEY = 'jorcs-intro-seen';
 
@@ -64,6 +52,10 @@ const RubiksCubeApp: React.FC = () => {
   // The current solution and how many of its moves have been applied so far.
   const [solution, setSolution] = useState<string[]>([]);
   const [step, setStep] = useState(0);
+  // The cube state (colour grid) the current solution was computed from -- i.e.
+  // step 0 of the player. Replaying solution moves onto it snaps the cube to any
+  // step, so the player can jump to the start or to any move.
+  const [initialColors, setInitialColors] = useState<string[][][]>([]);
   const [showIntro, setShowIntro] = useState(false);
 
   // Show the how-it-works overlay on the first visit.
@@ -118,6 +110,8 @@ const RubiksCubeApp: React.FC = () => {
       if (moves.length === 0) {
         setStatus('The cube is already solved.');
       } else {
+        // Remember the cube exactly as solved so the player can jump to any step.
+        setInitialColors(cubeColors.map((face) => face.map((row) => [...row])));
         setSolution(moves);
         setStep(0);
         setStatus(`Solution: ${moves.length} moves. Step through them below.`);
@@ -158,6 +152,16 @@ const RubiksCubeApp: React.FC = () => {
     setBusy(false);
   };
 
+  // Snap the cube to the state with the first `target` solution moves applied
+  // (target = 0 is the start). The colour grid alone drives the 3D display, so this
+  // is an instant jump; Next / Play all then continue from there.
+  const goToStep = (target: number) => {
+    if (busy || solution.length === 0) return;
+    const clamped = Math.max(0, Math.min(target, solution.length));
+    setCubeColors(colorsAfterMoves(initialColors, solution.slice(0, clamped)));
+    setStep(clamped);
+  };
+
   const handleSetOverlayData = (data: OverlayData) => {
     setOverlayData(data);
     setCubeColors((prevColors) => {
@@ -187,6 +191,17 @@ const RubiksCubeApp: React.FC = () => {
 
     setOverlayData(createDefaultOverlayData());
     setDetectionEnabled(true);
+  };
+
+  // Start from scratch: clear the solution and wipe the cube back to a blank,
+  // unscanned state, ready to scan a fresh cube from the first side.
+  const handleReset = () => {
+    if (busy) return;
+    clearSolution();
+    setInitialColors([]);
+    setStatus('');
+    setCubeColors(blankCubeColors());
+    setNewSide(sideOrder[0]);
   };
 
   const handlePreviousSide = () => {
@@ -250,6 +265,9 @@ const RubiksCubeApp: React.FC = () => {
       <button onClick={handleSolve} disabled={busy} style={{ marginLeft: '8px' }}>
         Solve
       </button>
+      <button onClick={handleReset} disabled={busy} style={{ marginLeft: '8px' }}>
+        Reset
+      </button>
       {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
 
       {solution.length > 0 && (
@@ -277,8 +295,12 @@ const RubiksCubeApp: React.FC = () => {
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
             {solution.map((move, index) => (
-              <span
+              <button
                 key={index}
+                type="button"
+                onClick={() => goToStep(index)}
+                disabled={busy}
+                title={`Jump to move ${index + 1}`}
                 style={{
                   padding: '2px 6px',
                   borderRadius: '4px',
@@ -287,14 +309,18 @@ const RubiksCubeApp: React.FC = () => {
                   background: index === step ? '#ffd500' : 'transparent',
                   color: index < step ? '#999' : index === step ? '#000' : 'inherit',
                   border: '1px solid #ddd',
+                  cursor: busy ? 'default' : 'pointer',
                 }}
               >
                 {move}
-              </span>
+              </button>
             ))}
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => goToStep(0)} disabled={busy || step === 0} title="Back to the start">
+              ⏮ Start
+            </button>
             <button onClick={stepBack} disabled={busy || step === 0}>
               ◀ Previous
             </button>

@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import * as THREE from 'three';
 import ColorPicker from './ColorPicker.tsx';
 import OrbitControls from './OrbitControls.ts';
+import { getFaceRowCol, rotateColorsQuarter } from './cubeColors';
 
 type RubiksCubeViewerProps = {
   cubeColors: string[][][]; // 3D array of colors for each face
@@ -64,72 +65,16 @@ const RubiksCubeViewer = forwardRef<{
   const updateCubeColorsAfterRotation = useCallback(
     (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => {
       // Rotate the turning layer's stickers exactly the way the mesh geometry
-      // rotates the cubies -- same axis, same signed angle -- so the colour grid
-      // can never diverge from where the stickers physically end up. (The old
-      // hand-rolled adjacency tables were a wrong permutation that only looked
-      // correct on a solved cube, and corrupted colours across a sequence.)
-      // Applied via a functional update so back-to-back animated turns don't race.
-      const sideRotations: {
-        [key: number]: { axis: 'x' | 'y' | 'z'; layerValue: number; angleMultiplier: number };
-      } = {
-        0: { axis: 'x', layerValue: 1, angleMultiplier: 1 },
-        1: { axis: 'x', layerValue: -1, angleMultiplier: -1 },
-        2: { axis: 'y', layerValue: 1, angleMultiplier: 1 },
-        3: { axis: 'y', layerValue: -1, angleMultiplier: -1 },
-        4: { axis: 'z', layerValue: 1, angleMultiplier: 1 },
-        5: { axis: 'z', layerValue: -1, angleMultiplier: -1 },
-      };
-      const { axis, layerValue, angleMultiplier } = sideRotations[sideIndex];
-      // Sign of the rotation angle, matching rotateSide's geometry exactly.
-      const sign = angleMultiplier * (direction === 'clockwise' ? -1 : 1);
-
-      const faceNormals = [
-        [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
-      ];
-      const normalToFace = (v: number[]) =>
-        faceNormals.findIndex((n) => n[0] === v[0] && n[1] === v[1] && n[2] === v[2]);
-      // A signed 90-degree rotation of an integer vector about the layer's axis.
-      const rotate90 = ([x, y, z]: number[]): number[] => {
-        if (axis === 'x') return sign > 0 ? [x, -z, y] : [x, z, -y];
-        if (axis === 'y') return sign > 0 ? [z, y, -x] : [-z, y, x];
-        return sign > 0 ? [-y, x, z] : [y, -x, z];
-      };
-      const onLayer = (x: number, y: number, z: number) =>
-        (axis === 'x' ? x : axis === 'y' ? y : z) === layerValue;
-      const facesAt = (x: number, y: number, z: number) => {
-        const faces: number[] = [];
-        if (x === 1) faces.push(0);
-        if (x === -1) faces.push(1);
-        if (y === 1) faces.push(2);
-        if (y === -1) faces.push(3);
-        if (z === 1) faces.push(4);
-        if (z === -1) faces.push(5);
-        return faces;
-      };
-
+      // rotates the cubies -- the shared rotateColorsQuarter uses the same axis and
+      // signed angle -- so the colour grid can never diverge from where the stickers
+      // physically end up, and the solution player replays moves the same way.
       // flushSync so the new colours are committed and repainted (via the
       // useLayoutEffect below) synchronously, in the same frame the geometry is
       // finalized -- otherwise the forced render at the end of the turn shows the
       // moved cubies with their old stickers for a frame (a flicker).
-      flushSync(() => setCubeColors((prev) => {
-        const next = prev.map((face) => face.map((row) => [...row]));
-        for (let x = -1; x <= 1; x++) {
-          for (let y = -1; y <= 1; y++) {
-            for (let z = -1; z <= 1; z++) {
-              if (!onLayer(x, y, z)) continue;
-              for (const face of facesAt(x, y, z)) {
-                const { row, col } = getFaceRowCol(face, x, y, z);
-                const color = prev[face][row][col];
-                const [nx, ny, nz] = rotate90([x, y, z]);
-                const newFace = normalToFace(rotate90(faceNormals[face]));
-                const { row: nr, col: nc } = getFaceRowCol(newFace, nx, ny, nz);
-                next[newFace][nr][nc] = color;
-              }
-            }
-          }
-        }
-        return next;
-      }));
+      flushSync(() =>
+        setCubeColors((prev) => rotateColorsQuarter(prev, sideIndex, direction)),
+      );
     },
     [setCubeColors],
   );
@@ -594,40 +539,6 @@ const RubiksCubeViewer = forwardRef<{
     const color = cubeColors[faceIndex][row][col];
 
     return new THREE.MeshBasicMaterial({ color });
-  }
-
-  function getFaceRowCol(faceIndex: number, x: number, y: number, z: number): { row: number; col: number } {
-    let row: number, col: number;
-    switch (faceIndex) {
-      case 0: // Right face (+X)
-        row = 1 - y;
-        col = 1 - z;
-        break;
-      case 1: // Left face (-X)
-        row = 1 - y;
-        col = z + 1;
-        break;
-      case 2: // Top face (+Y)
-        row = z + 1;
-        col = x + 1;
-        break;
-      case 3: // Bottom face (-Y)
-        row = 2 - (z + 1);
-        col = x + 1;
-        break;
-      case 4: // Front face (+Z)
-        row = 1 - y;
-        col = x + 1;
-        break;
-      case 5: // Back face (-Z)
-        row = 1 - y;
-        col = 1 - x;
-        break;
-      default:
-        row = 0;
-        col = 0;
-    }
-    return { row, col };
   }
 
   return (

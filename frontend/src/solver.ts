@@ -9,6 +9,7 @@ the Free Software Foundation, either version 3 of the License, or
 */
 
 import createJorcsModule, { type Cube, type JorcsModule } from './wasm/jorcs.js';
+import { moveToRotations } from './cubeColors';
 
 let modulePromise: Promise<JorcsModule> | null = null;
 let solverPromise: Promise<JorcsModule> | null = null;
@@ -77,30 +78,6 @@ export async function solveScannedColors(cubeColors: string[][][]): Promise<stri
 }
 
 export const MOVES = ['U', "U'", 'D', "D'", 'F', "F'", 'B', "B'", 'L', "L'", 'R', "R'"];
-
-// The viewer's sides: 0=Right 1=Left 2=Up 3=Down 4=Front 5=Back. A "clockwise"
-// turn there is a clockwise turn of that face (verified against the solver's
-// coordinate model).
-const FACE_TO_SIDE: Record<string, number> = { U: 2, D: 3, F: 4, B: 5, L: 1, R: 0 };
-
-type Rotation = { side: number; direction: 'clockwise' | 'counterclockwise' };
-
-// Expands a move (quarter or half turn) into the quarter-turn rotations the
-// viewer animates: "U" -> one CW, "U'" -> one CCW, "U2" -> two CW.
-function moveToRotations(move: string): Rotation[] {
-  const side = FACE_TO_SIDE[move[0]];
-  if (side === undefined) {
-    return [];
-  }
-  const suffix = move.slice(1);
-  if (suffix === "'") {
-    return [{ side, direction: 'counterclockwise' }];
-  }
-  if (suffix === '2') {
-    return [{ side, direction: 'clockwise' }, { side, direction: 'clockwise' }];
-  }
-  return [{ side, direction: 'clockwise' }];
-}
 
 type RotateSide = (side: number, direction: 'clockwise' | 'counterclockwise') => void;
 
