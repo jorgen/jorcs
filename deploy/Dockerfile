@@ -6,7 +6,7 @@
 #   docker build -f deploy/Dockerfile .
 
 # ---------- WASM (C++ solver -> WebAssembly via Emscripten) ----------
-FROM emscripten/emsdk:3.1.74 AS wasm
+FROM emscripten/emsdk:6.0.3 AS wasm
 WORKDIR /solver
 COPY solver/ ./
 RUN emcmake cmake -S wasm -B /wasm-build -DCMAKE_BUILD_TYPE=Release \

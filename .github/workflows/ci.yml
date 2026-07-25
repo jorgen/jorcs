@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 3.1.74
+          version: 6.0.3
       - name: Build the WASM solver
         run: |
           emcmake cmake -S solver/wasm -B solver/wasm-build -DCMAKE_BUILD_TYPE=Release
