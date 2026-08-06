@@ -79,11 +79,23 @@ const RubiksCubeViewer = forwardRef<{
   const turnQueueRef = useRef<Turn[]>([]);
   const isTurningRef = useRef(false);
 
-  // Icons as Unicode characters or simple SVG paths
-  const icons = {
-    ORBIT: '🤚', // Flat hand icon
-    COLOR_PICKER: '➡️', // Arrow icon
-    SIDE_SELECTION: '⤵️', // Bold arrow icon
+  // What each mode's button shows, and what it says when you hover it. A bare
+  // glyph never explains a mode on its own -- an arrow says nothing about
+  // recolouring a sticker -- so the icon carries the idea and the description
+  // spells it out, both as a tooltip and as the button's accessible name.
+  const modeButtons = {
+    ORBIT: {
+      icon: '🤚',
+      description: 'Turn the cube: drag to look at it from anywhere',
+    },
+    COLOR_PICKER: {
+      icon: '🎨',
+      description: 'Fix a colour: click a sticker to pick the right one',
+    },
+    SIDE_SELECTION: {
+      icon: '🧭',
+      description: 'Face a side: click one to swing the camera square onto it',
+    },
   };
 
   const updateCubeColorsAfterRotation = useCallback(
@@ -706,6 +718,9 @@ const RubiksCubeViewer = forwardRef<{
           <button
             key={mode}
             onClick={() => setInteractionMode(mode as InteractionMode)}
+            title={modeButtons[mode].description}
+            aria-label={modeButtons[mode].description}
+            aria-pressed={interactionMode === mode}
             style={{
               marginRight: '10px',
               padding: '10px',
@@ -715,7 +730,7 @@ const RubiksCubeViewer = forwardRef<{
               cursor: 'pointer',
             }}
           >
-            {icons[mode]}
+            {modeButtons[mode].icon}
           </button>
         ))}
       </div>
