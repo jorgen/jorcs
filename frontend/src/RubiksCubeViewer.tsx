@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import ColorPicker from './ColorPicker.tsx';
 import OrbitControls from './OrbitControls.ts';
 import { getFaceRowCol, rotateColorsQuarter } from './cubeColors';
+import { goodViewingDirection, isGoodViewingDirection, normalized } from './cameraAngle';
 
 type RubiksCubeViewerProps = {
   cubeColors: string[][][]; // 3D array of colors for each face
@@ -23,8 +24,24 @@ const InteractionModes = {
 
 type InteractionMode = typeof InteractionModes[keyof typeof InteractionModes];
 
+type Turn = { sideIndex: number; direction: 'clockwise' | 'counterclockwise' };
+
+// How close to straight up or down the Y axis counts as being on the axis, where
+// the azimuth stops describing a position and only describes a roll.
+const POLE_EPSILON = 1e-4;
+
+// Distance the camera is placed at when it is put straight in front of a face:
+// far enough back for the whole cube to fit in the frustum.
+function faceViewDistance(camera: THREE.PerspectiveCamera): number {
+  const cubeSize = 2; // The cube spans from -1 to 1 in each axis
+  const maxCubeDimension = Math.sqrt(3 * Math.pow(cubeSize, 2)); // Diagonal length of the cube
+  const fovRadians = THREE.MathUtils.degToRad(camera.fov);
+  return maxCubeDimension / 2 / Math.sin(fovRadians / 2) + 5;
+}
+
 const RubiksCubeViewer = forwardRef<{
   rotateSide: (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => void;
+  ensureGoodViewingAngle: () => Promise<void>;
 }, RubiksCubeViewerProps>(({
                              cubeColors,
                              currentSide,
@@ -54,6 +71,13 @@ const RubiksCubeViewer = forwardRef<{
   const raycasterRef = useRef<THREE.Raycaster>();
   const mouseRef = useRef<THREE.Vector2>();
   const cubiesRef = useRef<THREE.Mesh[]>([]);
+  // Stops the camera fly through that is currently running, if any.
+  const cancelCameraAnimationRef = useRef<(() => void) | null>(null);
+  // Resolves once the camera fly through that is running, if any, has landed.
+  const cameraSettledRef = useRef<Promise<void>>(Promise.resolve());
+  // Turns waiting to be played, and whether one is playing right now.
+  const turnQueueRef = useRef<Turn[]>([]);
+  const isTurningRef = useRef(false);
 
   // Icons as Unicode characters or simple SVG paths
   const icons = {
@@ -79,9 +103,161 @@ const RubiksCubeViewer = forwardRef<{
     [setCubeColors],
   );
 
-  const rotateSide = useCallback(
-    (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => {
-      if (!sceneRef.current) return;
+  /**
+   * Swings the camera around the cube to `targetDirection` (a unit vector
+   * pointing from the cube towards the camera) over `duration` milliseconds.
+   *
+   * The path is interpolated in the same spherical angles OrbitControls and
+   * lookAt work in, so the azimuth - which is what decides how the cube is
+   * rolled on screen - changes evenly instead of racing through half a turn
+   * wherever the path happens to pass close to the poles.
+   *
+   * Resolves once the camera is there, or straight away if another camera
+   * animation takes over, so callers waiting on it are never left hanging.
+   */
+  const animateCameraTo = useCallback(
+    (
+      targetDirection: THREE.Vector3,
+      targetRadius: number,
+      duration: number,
+    ): Promise<void> => {
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!camera || !controls) return Promise.resolve();
+
+      cancelCameraAnimationRef.current?.();
+
+      const pivot = controls.target.clone();
+      const startOffset = camera.position.clone().sub(pivot);
+      const startRadius = startOffset.length();
+      const endOffset = targetDirection.clone().normalize().multiplyScalar(targetRadius);
+
+      const start = new THREE.Spherical().setFromVector3(
+        startRadius > 0 ? startOffset : endOffset,
+      );
+      const end = new THREE.Spherical().setFromVector3(endOffset);
+
+      // Straight up or down the Y axis an azimuth no longer says where the
+      // camera is, only how the cube is rolled on screen, and lookAt cannot
+      // recover it from a camera sitting on the axis. Land on a fixed azimuth
+      // there so the top and bottom views always come out the same way up.
+      if (end.phi < POLE_EPSILON || Math.PI - end.phi < POLE_EPSILON) {
+        end.theta = 0;
+      }
+
+      // Turn the short way round rather than back through a full circle.
+      const turn = end.theta - start.theta;
+      end.theta = start.theta + (turn - Math.round(turn / (2 * Math.PI)) * 2 * Math.PI);
+
+      const flight = new Promise<void>((resolve) => {
+        let frameId = 0;
+        let startTime: number | null = null;
+
+        cancelCameraAnimationRef.current = () => {
+          cancelAnimationFrame(frameId);
+          cancelCameraAnimationRef.current = null;
+          resolve();
+        };
+
+        const step = (time: number) => {
+          if (startTime === null) startTime = time;
+          const t = duration > 0 ? Math.min((time - startTime) / duration, 1) : 1;
+          const eased = t * t * (3 - 2 * t); // Smoothstep, so it eases in and out
+
+          const current = new THREE.Spherical(
+            THREE.MathUtils.lerp(start.radius, end.radius, eased),
+            THREE.MathUtils.lerp(start.phi, end.phi, eased),
+            THREE.MathUtils.lerp(start.theta, end.theta, eased),
+          );
+          // Keeps the camera a hair off the axis, where lookAt has a roll to work with
+          current.makeSafe();
+
+          camera.position.setFromSpherical(current).add(pivot);
+          camera.lookAt(pivot);
+          controls.update();
+
+          if (t < 1) {
+            frameId = requestAnimationFrame(step);
+          } else {
+            cancelCameraAnimationRef.current = null;
+            resolve();
+          }
+        };
+
+        frameId = requestAnimationFrame(step);
+      });
+
+      cameraSettledRef.current = flight;
+      return flight;
+    },
+    [],
+  );
+
+  const animateCameraToSide = useCallback(
+    (sideIndex: number) => {
+      const camera = cameraRef.current;
+      if (!camera) return;
+
+      // Directions towards the camera for each side, in face order
+      const directions = [
+        new THREE.Vector3(1, 0, 0),   // Right face (side 0)
+        new THREE.Vector3(-1, 0, 0),  // Left face (side 1)
+        new THREE.Vector3(0, 1, 0),   // Top face (side 2)
+        new THREE.Vector3(0, -1, 0),  // Bottom face (side 3)
+        new THREE.Vector3(0, 0, 1),   // Front face (side 4)
+        new THREE.Vector3(0, 0, -1),  // Back face (side 5)
+      ];
+
+      const direction = directions[sideIndex];
+      if (!direction) return;
+
+      void animateCameraTo(direction, faceViewDistance(camera), 1000);
+    },
+    [animateCameraTo],
+  );
+
+  /**
+   * Moves the camera onto a corner of the cube before a turn plays out. Looking
+   * straight at a face hides the five layers that turn away from the camera: a
+   * back face turn seen from straight in front does not move a single visible
+   * sticker, which is easy to end up with because scanning parks the camera
+   * square in front of a face. Only the axes the camera is too flat against are
+   * corrected, and the current zoom is kept, so the cube stays as close as
+   * possible to the orientation the user left it in.
+   */
+  const ensureGoodViewingAngle = useCallback(async (): Promise<void> => {
+    // A fly through that is still running has to land first. A position the
+    // camera is only passing through says nothing about where the turn would be
+    // watched from - a flight to a face view reads as a perfectly good angle
+    // half way in - and correcting from one would leave the camera stuck at
+    // whatever distance it had reached on its way in.
+    while (cancelCameraAnimationRef.current) {
+      await cameraSettledRef.current;
+    }
+
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    const offset = camera.position.clone().sub(controls.target);
+    const radius = offset.length() || faceViewDistance(camera);
+    const current = normalized(offset);
+
+    if (isGoodViewingDirection(current)) return;
+
+    const good = goodViewingDirection(current);
+    const target = new THREE.Vector3(good.x, good.y, good.z);
+    const travel = target.angleTo(new THREE.Vector3(current.x, current.y, current.z));
+    const duration = THREE.MathUtils.clamp((travel / Math.PI) * 1600, 300, 700);
+
+    await animateCameraTo(target, radius, duration);
+  }, [animateCameraTo]);
+
+  // Plays one quarter turn and reports when the layer has landed.
+  const playTurn = useCallback(
+    ({ sideIndex, direction }: Turn): Promise<void> => {
+      const scene = sceneRef.current;
+      if (!scene) return Promise.resolve();
 
       // Mapping for each side
       const sideRotations: { [key: number]: { axis: 'x' | 'y' | 'z'; layerValue: number; angleMultiplier: number } } = {
@@ -103,7 +279,7 @@ const RubiksCubeViewer = forwardRef<{
         }
       });
 
-      sceneRef.current.add(rotationGroup);
+      scene.add(rotationGroup);
 
       let angle = angleMultiplier * (direction === 'clockwise' ? -1 : 1) * (Math.PI / 2);
       const rotationAxis = new THREE.Vector3(
@@ -116,127 +292,101 @@ const RubiksCubeViewer = forwardRef<{
       let startTime: number | null = null;
       const duration = 300; // in milliseconds
 
-      const animateRotation = (timestamp: number) => {
-        if (!startTime) startTime = timestamp;
-        const elapsed = timestamp - startTime;
-        const t = Math.min(elapsed / duration, 1); // Normalized time [0, 1]
+      return new Promise<void>((resolve) => {
+        const animateRotation = (timestamp: number) => {
+          if (!startTime) startTime = timestamp;
+          const elapsed = timestamp - startTime;
+          const t = Math.min(elapsed / duration, 1); // Normalized time [0, 1]
 
-        rotationGroup.rotation[axis] = angle * t;
+          rotationGroup.rotation[axis] = angle * t;
 
-        rendererRef.current?.render(sceneRef.current!, cameraRef.current!);
+          rendererRef.current?.render(scene, cameraRef.current!);
 
-        if (t < 1) {
-          requestAnimationFrame(animateRotation);
-        } else {
-          // Finalize rotation
-          rotationGroup.rotation[axis] = angle;
+          if (t < 1) {
+            requestAnimationFrame(animateRotation);
+          } else {
+            // Finalize rotation
+            rotationGroup.rotation[axis] = angle;
 
-          const cubiesToMove = [...rotationGroup.children];
+            const cubiesToMove = [...rotationGroup.children];
 
-          cubiesToMove.forEach((cubie) => {
-            // Apply rotation to cubie's position
-            cubie.position.applyAxisAngle(rotationAxis, angle);
+            cubiesToMove.forEach((cubie) => {
+              // Apply rotation to cubie's position
+              cubie.position.applyAxisAngle(rotationAxis, angle);
 
-            // Round positions to avoid floating-point errors
-            cubie.position.x = Math.round(cubie.position.x);
-            cubie.position.y = Math.round(cubie.position.y);
-            cubie.position.z = Math.round(cubie.position.z);
+              // Round positions to avoid floating-point errors
+              cubie.position.x = Math.round(cubie.position.x);
+              cubie.position.y = Math.round(cubie.position.y);
+              cubie.position.z = Math.round(cubie.position.z);
 
-            // Reset cubie's rotation
-            cubie.rotation.set(0, 0, 0);
+              // Reset cubie's rotation
+              cubie.rotation.set(0, 0, 0);
 
-            // Remove cubie from group and add back to scene
-            rotationGroup.remove(cubie);
-            sceneRef.current?.add(cubie);
-          });
+              // Remove cubie from group and add back to scene
+              rotationGroup.remove(cubie);
+              scene.add(cubie);
+            });
 
-          sceneRef.current?.remove(rotationGroup);
+            scene.remove(rotationGroup);
 
-          updateCubeColorsAfterRotation(sideIndex, direction);
+            updateCubeColorsAfterRotation(sideIndex, direction);
 
-          // Force a render to update the scene
-          rendererRef.current?.render(sceneRef.current!, cameraRef.current!);
-        }
-      };
+            // Force a render to update the scene
+            rendererRef.current?.render(scene, cameraRef.current!);
 
-      requestAnimationFrame(animateRotation);
+            resolve();
+          }
+        };
+
+        requestAnimationFrame(animateRotation);
+      });
     },
-    [sceneRef, cubiesRef, updateCubeColorsAfterRotation],
+    [updateCubeColorsAfterRotation],
+  );
+
+  /**
+   * Queues a quarter turn. Turns are played strictly one at a time: the solution
+   * player and the scramble fire them on a fixed cadence without waiting for the
+   * previous one to land, and two turns running at once would pull cubies out of
+   * each other's rotation group and leave the cube in a state the colour grid no
+   * longer describes. Queueing also means the camera correction below can take
+   * as long as it needs without a turn ever being dropped.
+   */
+  const rotateSide = useCallback(
+    (sideIndex: number, direction: 'clockwise' | 'counterclockwise') => {
+      if (!sceneRef.current) return;
+
+      turnQueueRef.current.push({ sideIndex, direction });
+      if (isTurningRef.current) return;
+
+      isTurningRef.current = true;
+
+      void (async () => {
+        try {
+          // Get a corner of the cube in view first, otherwise a turn on a side
+          // facing away from the camera plays out completely unseen. Only the
+          // first turn of a run pays for this: once the angle is good the check
+          // returns immediately, so a solution replays at full speed.
+          while (turnQueueRef.current.length > 0) {
+            await ensureGoodViewingAngle();
+            const turn = turnQueueRef.current.shift();
+            if (turn) await playTurn(turn);
+          }
+        } finally {
+          isTurningRef.current = false;
+        }
+      })();
+    },
+    [ensureGoodViewingAngle, playTurn],
   );
 
   useImperativeHandle(ref, () => ({
     rotateSide,
+    // Callers that fire a run of turns on their own cadence (the solution player,
+    // the scramble) can get the camera settled before the first one, so the turns
+    // are not left queueing behind the swing.
+    ensureGoodViewingAngle,
   }));
-
-  const animateCameraToSide = useCallback((sideIndex: number) => {
-    if (cameraRef.current && controlsRef.current) {
-      const camera = cameraRef.current;
-      const controls = controlsRef.current;
-      const duration = 1000; // Animation duration in milliseconds
-      const startPosition = camera.position.clone();
-
-      // Calculate the same camera distance used initially
-      const cubeSize = 2;
-      const maxCubeDimension = Math.sqrt(3 * Math.pow(cubeSize, 2));
-      const fovRadians = THREE.MathUtils.degToRad(camera.fov);
-      const cameraDistance = (maxCubeDimension / 2) / Math.sin(fovRadians / 2) + 5;
-
-      // Define target positions for each side at the calculated distance
-      const positions = [
-        new THREE.Vector3(cameraDistance, 0, 0),    // Right face (side 0)
-        new THREE.Vector3(-cameraDistance, 0, 0),   // Left face (side 1)
-        new THREE.Vector3(0, cameraDistance, 0),    // Top face (side 2)
-        new THREE.Vector3(0, -cameraDistance, 0),   // Bottom face (side 3)
-        new THREE.Vector3(0, 0, cameraDistance),    // Front face (side 4)
-        new THREE.Vector3(0, 0, -cameraDistance),   // Back face (side 5)
-      ];
-
-      const targetPosition = positions[sideIndex];
-      const startTime = performance.now();
-
-      // Convert positions to spherical coordinates
-      const startSpherical = new THREE.Spherical().setFromVector3(startPosition);
-      const endSpherical = new THREE.Spherical().setFromVector3(targetPosition);
-
-      // Adjust angles to ensure shortest path
-      if (Math.abs(endSpherical.theta - startSpherical.theta) > Math.PI) {
-        if (endSpherical.theta > startSpherical.theta) {
-          endSpherical.theta -= 2 * Math.PI;
-        } else {
-          endSpherical.theta += 2 * Math.PI;
-        }
-      }
-
-      const animateCamera = (time: number) => {
-        const elapsed = time - startTime;
-        const t = Math.min(elapsed / duration, 1); // Normalized time (0 to 1)
-
-        // Interpolate spherical coordinates
-        const currentSpherical = new THREE.Spherical(
-          THREE.MathUtils.lerp(startSpherical.radius, endSpherical.radius, t),
-          THREE.MathUtils.lerp(startSpherical.phi, endSpherical.phi, t),
-          THREE.MathUtils.lerp(startSpherical.theta, endSpherical.theta, t),
-        );
-
-        // Update camera position
-        camera.position.setFromSpherical(currentSpherical);
-        camera.lookAt(new THREE.Vector3(0, 0, 0)); // Ensure camera is looking at the cube
-
-        // Update controls
-        controls.update();
-
-        if (t < 1) {
-          requestAnimationFrame(animateCamera);
-        } else {
-          // Ensure final position is set
-          camera.position.copy(targetPosition);
-          controls.update();
-        }
-      };
-
-      requestAnimationFrame(animateCamera);
-    }
-  }, []);
 
   const handleClick = useCallback(
     (event: MouseEvent) => {
@@ -396,10 +546,17 @@ const RubiksCubeViewer = forwardRef<{
 
       // Clean up on unmount
       return () => {
+        cancelCameraAnimationRef.current?.();
         resizeObserver.disconnect();
         mount.removeChild(renderer.domElement);
         renderer.dispose();
-        sceneRef.current = undefined; // Reset the scene reference
+        // Drop the references, so anything still waiting its turn - a queued
+        // turn, a camera correction - finds nothing to draw to and quietly
+        // gives up instead of touching a torn down renderer.
+        sceneRef.current = undefined;
+        cameraRef.current = undefined;
+        controlsRef.current = undefined;
+        rendererRef.current = undefined;
       };
     }
   }, []);

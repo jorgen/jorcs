@@ -30,6 +30,7 @@ const RubiksCubeApp: React.FC = () => {
       sideIndex: number,
       direction: 'clockwise' | 'counterclockwise',
     ) => void;
+    ensureGoodViewingAngle: () => Promise<void>;
   }>(null);
 
   const {
@@ -79,6 +80,12 @@ const RubiksCubeApp: React.FC = () => {
   // Read rotateSide fresh each call so the animated turns stay consistent.
   const rotate = (side: number, direction: 'clockwise' | 'counterclockwise') => cubeViewerRef.current?.rotateSide(side, direction);
 
+  // Scanning parks the camera square in front of a face, and from there the
+  // layers turning away from it move nothing you can see. Swing round to a
+  // corner of the cube before playing any turns -- the viewer only moves the
+  // camera when the angle is actually bad, so this is usually instant.
+  const showTheCube = () => cubeViewerRef.current?.ensureGoodViewingAngle();
+
   const clearSolution = () => {
     setSolution([]);
     setStep(0);
@@ -93,6 +100,7 @@ const RubiksCubeApp: React.FC = () => {
     setStatus('Scrambling…');
     setCubeColors(solvedCubeColors());
     await new Promise((resolve) => setTimeout(resolve, 120));
+    await showTheCube();
     await playMoves(randomScramble(20), rotate);
     setStatus('Scrambled — press Solve to solve it.');
     setBusy(false);
@@ -130,6 +138,7 @@ const RubiksCubeApp: React.FC = () => {
   const stepForward = async () => {
     if (busy || step >= solution.length) return;
     setBusy(true);
+    await showTheCube();
     await playMoves([solution[step]], rotate);
     setStep(step + 1);
     setBusy(false);
@@ -138,6 +147,7 @@ const RubiksCubeApp: React.FC = () => {
   const stepBack = async () => {
     if (busy || step <= 0) return;
     setBusy(true);
+    await showTheCube();
     await playMoves([invertMove(solution[step - 1])], rotate);
     setStep(step - 1);
     setBusy(false);
@@ -147,6 +157,7 @@ const RubiksCubeApp: React.FC = () => {
     if (busy || step >= solution.length) return;
     setBusy(true);
     const rest = solution.slice(step);
+    await showTheCube();
     await playMoves(rest, rotate);
     setStep(solution.length);
     setBusy(false);
