@@ -13,7 +13,12 @@ type RubiksCubeViewerProps = {
     newColors: string[][][] | ((prev: string[][][]) => string[][][]),
   ) => void; // Callback to update cubeColors (accepts a functional updater)
   setCurrentSide: (side: number) => void; // Callback to update currentSide
+  // Facelet indices (face*9 + row*3 + col) to spotlight; everything else is faded.
+  highlight?: ReadonlySet<number> | null;
 };
+
+// What a faded, not-implicated sticker is mixed towards.
+const DIMMED = new THREE.Color('#d7d7d7');
 
 // Interaction modes
 const InteractionModes = {
@@ -47,6 +52,7 @@ const RubiksCubeViewer = forwardRef<{
                              currentSide,
                              setCubeColors,
                              setCurrentSide,
+                             highlight,
                            }, ref) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [selectedSquare, setSelectedSquare] = useState<{
@@ -583,10 +589,18 @@ const RubiksCubeViewer = forwardRef<{
         const y = Math.round(cubie.position.y);
         const z = Math.round(cubie.position.z);
         const newMaterials = createCubieMaterials(x, y, z);
+        const previous = cubie.material;
         cubie.material = newMaterials;
+        // Every repaint builds 6 fresh materials per cubie, and a turn repaints on
+        // every step -- so the ones we just replaced have to go.
+        if (Array.isArray(previous)) {
+          previous.forEach((material) => material.dispose());
+        } else if (previous) {
+          previous.dispose();
+        }
       });
     }
-  }, [cubeColors]);
+  }, [cubeColors, highlight]);
 
   useEffect(() => {
     animateCameraToSide(currentSide);
@@ -706,6 +720,15 @@ const RubiksCubeViewer = forwardRef<{
     col = Math.max(0, Math.min(2, col));
 
     const color = cubeColors[faceIndex][row][col];
+
+    // Spotlight the stickers a diagnosis flagged by fading everything else, rather
+    // than brightening them: these are MeshBasicMaterials, so they ignore lights
+    // and there is no emissive to turn up.
+    if (highlight && highlight.size > 0 && !highlight.has(faceIndex * 9 + row * 3 + col)) {
+      return new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color).lerp(DIMMED, 0.72),
+      });
+    }
 
     return new THREE.MeshBasicMaterial({ color });
   }

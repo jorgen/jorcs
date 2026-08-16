@@ -72,6 +72,69 @@ export interface JorcsModule {
   // Solve a scanned cube given as 54 facelets (face-index 0..5 per sticker; layout
   // face*9+row*3+col, faces 0=R 1=L 2=U 3=D 4=F 5=B). "ERROR:bad-scan" if misread.
   twoPhaseSolveFacelets(facelets: Uint8Array): string;
+
+  // Build just the facelet reconstructor, without the solver's tables -- enough to
+  // diagnose a scan.
+  ensureReconstructor(): void;
+  // Solve a scanned cube, or explain precisely why it can't be solved.
+  analyzeFacelets(facelets: Uint8Array, costs: Uint16Array): Analysis;
+}
+
+// Bit flags matching jorcs::diagnose::Fault.
+export const enum Fault {
+  Range = 1 << 0,
+  ImpossibleCorner = 1 << 1,
+  ImpossibleEdge = 1 << 2,
+  DuplicateCorner = 1 << 3,
+  DuplicateEdge = 1 << 4,
+  CornerTwist = 1 << 5,
+  EdgeFlip = 1 << 6,
+  Parity = 1 << 7,
+}
+
+// How to put a well-formed but unsolvable cube back on the solvable coset. Slots
+// say where to act; pieces say which cubies a solution will leave visibly wrong.
+export interface Repair {
+  twistSlot: number;
+  twistAmount: number;
+  twistPiece: number;
+  flipSlot: number;
+  flipPiece: number;
+  swapSlotA: number;
+  swapSlotB: number;
+  swapPieceA: number;
+  swapPieceB: number;
+  swapIsEdges: boolean;
+}
+
+export interface Analysis {
+  status: 'solved' | 'unsolvable' | 'solver-failed' | 'bad-input';
+  faults: number;
+  piecesReadable?: boolean;
+  wellFormed?: boolean;
+  solvable?: boolean;
+  badCornerSlots?: number;
+  badEdgeSlots?: number;
+  badSlotCount?: number;
+  twistResidue?: number;
+  flipResidue?: number;
+  parityMismatch?: boolean;
+  // Facelet indices (0..53) worth pointing at on screen.
+  highlightFacelets?: number[];
+  // Present when status is 'solved'.
+  solution?: string;
+  // Present when the cube is well-formed but unsolvable.
+  repair?: Repair;
+  // A solution to the REPAIRED cube: play it on the real one and everything comes
+  // home except the piece named by `repair`.
+  repairedSolution?: string;
+  // A whole face that appears to have been scanned turned round.
+  faceRotation?: { face: number; turns: number };
+  // Re-readings of one or two squares that would make this a real cube, cheapest
+  // first. `suggestionCount` is how many there were altogether -- one is an answer,
+  // several dozen is only a shortlist.
+  suggestions?: { faceletA: number; colorA: number; faceletB: number; colorB: number }[];
+  suggestionCount?: number;
 }
 
 declare const createJorcsModule: (options?: Record<string, unknown>) => Promise<JorcsModule>;

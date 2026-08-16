@@ -14,6 +14,8 @@ type RecognizedGrid = {
   colors: string[][];
   hsvValues: HSV[][];
   subImages: string[][];
+  // Per square, how far the reading sat from each of the six canonical colours.
+  distances: number[][][];
 };
 
 // Canonical sticker colours in sRGB, mirroring the viewer's FACE_COLORS
@@ -50,6 +52,7 @@ export function recognizeColorsFromGrid(
   const gridColors: string[][] = [];
   const gridHsvValues: HSV[][] = [];
   const subImages: string[][] = [];
+  const gridDistances: number[][][] = [];
   const gridSize = 3;
 
   // Determine the size of the square grid (50% of the smaller canvas dimension)
@@ -65,13 +68,15 @@ export function recognizeColorsFromGrid(
     const rowColors: string[] = [];
     const rowHsvValues: HSV[] = [];
     const rowSubImages: string[] = [];
+    const rowDistances: number[][] = [];
     for (let col = 0; col < gridSize; col++) {
       const x = gridX + col * squareSize;
       const y = gridY + row * squareSize;
       const imageData = ctx.getImageData(x, y, squareSize, squareSize);
-      const { colorName, meanHsv } = getDominantColor(imageData);
+      const { colorName, meanHsv, distances } = getDominantColor(imageData);
       rowColors.push(colorName);
       rowHsvValues.push(meanHsv);
+      rowDistances.push(distances);
 
       // Convert the imageData to a data URL for display
       const subCanvas = document.createElement('canvas');
@@ -85,8 +90,9 @@ export function recognizeColorsFromGrid(
     gridColors.push(rowColors);
     gridHsvValues.push(rowHsvValues);
     subImages.push(rowSubImages);
+    gridDistances.push(rowDistances);
   }
-  return { colors: gridColors, hsvValues: gridHsvValues, subImages };
+  return { colors: gridColors, hsvValues: gridHsvValues, subImages, distances: gridDistances };
 }
 
 /**
@@ -96,7 +102,7 @@ export function recognizeColorsFromGrid(
  * @param imageData - ImageData of the square region.
  * @returns The color name and a coherent representative HSV (for the debug pane).
  */
-function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: HSV } {
+function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: HSV; distances: number[] } {
   const { width, height, data } = imageData;
 
   // Analyze only the central ~60% of the square so the inter-sticker grout,
@@ -146,10 +152,12 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
   const mg = median(px.G);
   const mb = median(px.B);
 
-  const colorName = classifyLab(rgbToLab(mr, mg, mb));
+  const lab = rgbToLab(mr, mg, mb);
+  const colorName = classifyLab(lab);
+  const distances = labDistances(lab);
   const meanHsv = rgbToHsv(mr, mg, mb);
 
-  return { colorName, meanHsv };
+  return { colorName, meanHsv, distances };
 }
 
 function median(values: number[]): number {
@@ -178,6 +186,37 @@ function classifyLab(lab: Lab): string {
     }
   }
   return bestName;
+}
+
+// How far this reading is from each canonical colour, in the same squared-a*b*
+// units, ordered to match cubeDiagnosis's COLOR_NAMES (red, orange, white, yellow,
+// green, blue). classifyLab only ever returns the winner and throws the rest away;
+// keeping them lets the solver rank "which square did we most likely misread"
+// instead of guessing between equally valid repairs.
+//
+// White is the awkward one: it is decided by a chroma threshold rather than by
+// distance to a reference, and there is no white entry in REFERENCE_COLORS. Its
+// distance from the achromatic axis IS its chroma squared, which is already in the
+// right units; a dark sticker gets a lightness penalty so shadowed colours are not
+// mistaken for likely whites.
+export function labDistances(lab: Lab): number[] {
+  const byName = new Map(
+    REFERENCE_COLORS.map((ref) => {
+      const da = lab.a - ref.lab.a;
+      const db = lab.b - ref.lab.b;
+      return [ref.name, da * da + db * db] as const;
+    }),
+  );
+  const darkness = Math.max(0, WHITE_MIN_LIGHTNESS - lab.L);
+  const whiteDistance = lab.a * lab.a + lab.b * lab.b + darkness * darkness;
+  return [
+    byName.get('red') ?? 0,
+    byName.get('orange') ?? 0,
+    whiteDistance,
+    byName.get('yellow') ?? 0,
+    byName.get('green') ?? 0,
+    byName.get('blue') ?? 0,
+  ];
 }
 
 // sRGB (0-255 per channel) -> HSV in OpenCV ranges (h 0-179, s/v 0-255), kept

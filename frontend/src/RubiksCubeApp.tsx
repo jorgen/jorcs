@@ -1,12 +1,37 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import RubiksCubeRecognizer from './RubiksCubeRecognizer';
 import RubiksCubeViewer from './RubiksCubeViewer';
 import IntroOverlay from './IntroOverlay';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
 import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './solver';
 import { blankCubeColors, colorsAfterMoves, invertMove, solvedCubeColors } from './cubeColors';
+import { type Defect, type Explanation, colorTally } from './cubeDiagnosis';
 
 const INTRO_SEEN_KEY = 'jorcs-intro-seen';
+
+// Who a problem belongs to, and how loudly to say so. "incomplete" is not a
+// problem at all -- you just aren't finished scanning yet.
+//
+// Each tone carries its own text colour as well as its background. The page is
+// dark by default (index.css) and light under prefers-color-scheme, so anything
+// that sets a background MUST set the foreground too -- otherwise it inherits the
+// theme's near-white body text and lands white-on-white.
+const DIAGNOSIS_TONE: Record<
+  Explanation['blame'],
+  { icon: string; border: string; background: string; text: string }
+> = {
+  incomplete: { icon: 'ℹ️', border: '#9bb7d4', background: '#eef4fb', text: '#1c3d5a' },
+  scan: { icon: '👀', border: '#d9b271', background: '#fdf5e6', text: '#6b4a12' },
+  cube: { icon: '🧩', border: '#d48b8b', background: '#fbeeee', text: '#7a2626' },
+};
+
+// Buttons get `background-color: #1a1a1a` from index.css in dark mode, so one
+// sitting on a light panel needs both of its own colours as well.
+const PANEL_BUTTON: React.CSSProperties = {
+  background: '#213547',
+  color: '#ffffff',
+  border: '1px solid #213547',
+};
 
 // True when the viewport is phone-sized, kept in sync as it changes.
 function useIsMobile(breakpoint = 768): boolean {
@@ -48,7 +73,26 @@ const RubiksCubeApp: React.FC = () => {
 
   const isMobile = useIsMobile();
 
+  // What the camera actually measured for each face, kept beside the colours it
+  // produced at the time. Any turn permutes the colour grid but not this, so the
+  // colours are the receipt: if a face no longer matches, its measurements are
+  // stale and get ignored rather than believed.
+  const scanReadingsRef = useRef<({ colors: string[][]; distances: number[][][] } | null)[]>(
+    Array.from({ length: 6 }, () => null),
+  );
+
   const [status, setStatus] = useState('');
+  // What is wrong with the cube, when something is. Kept apart from `status` so a
+  // problem never looks like just another progress line.
+  const [diagnosis, setDiagnosis] = useState<Explanation | null>(null);
+  // The squares the diagnosis implicates, spotlighted on the 3D cube.
+  const [highlight, setHighlight] = useState<ReadonlySet<number> | null>(null);
+  // A solution for a cube that cannot actually be solved, and the piece it will
+  // leave visibly wrong. Offered rather than played, so the ending is never a
+  // surprise.
+  const [anyway, setAnyway] = useState<{ moves: string[]; defect: Defect | null } | null>(null);
+  // Set once "Solve it anyway" is running, so the player can say what to expect.
+  const [expectedDefect, setExpectedDefect] = useState<Defect | null>(null);
   const [busy, setBusy] = useState(false);
   // The current solution and how many of its moves have been applied so far.
   const [solution, setSolution] = useState<string[]>([]);
@@ -89,12 +133,20 @@ const RubiksCubeApp: React.FC = () => {
   const clearSolution = () => {
     setSolution([]);
     setStep(0);
+    setExpectedDefect(null);
+  };
+
+  const clearDiagnosis = () => {
+    setDiagnosis(null);
+    setHighlight(null);
+    setAnyway(null);
   };
 
   const handleScramble = async () => {
     if (busy) return;
     setBusy(true);
     clearSolution();
+    clearDiagnosis();
     // Start building the solver now so the first Solve isn't a cold wait.
     void ensureSolver().catch(() => {});
     setStatus('Scrambling…');
@@ -112,27 +164,61 @@ const RubiksCubeApp: React.FC = () => {
     if (busy) return;
     setBusy(true);
     clearSolution();
+    clearDiagnosis();
     setStatus('Solving…');
     try {
-      const moves = await solveScannedColors(cubeColors);
-      if (moves.length === 0) {
+      const outcome = await solveScannedColors(cubeColors, scanReadingsRef.current);
+      if (outcome.kind === 'fault') {
+        setStatus('');
+        setDiagnosis(outcome.explanation);
+        setHighlight(outcome.highlight.length > 0 ? new Set(outcome.highlight) : null);
+        setAnyway(
+          outcome.anywayMoves ? { moves: outcome.anywayMoves, defect: outcome.defect ?? null } : null,
+        );
+      } else if (outcome.kind === 'error') {
+        setStatus('');
+        setDiagnosis({
+          blame: 'scan',
+          headline: 'The solver could not finish.',
+          detail: outcome.message,
+        });
+      } else if (outcome.moves.length === 0) {
         setStatus('The cube is already solved.');
       } else {
         // Remember the cube exactly as solved so the player can jump to any step.
         setInitialColors(cubeColors.map((face) => face.map((row) => [...row])));
-        setSolution(moves);
+        setSolution(outcome.moves);
         setStep(0);
-        setStatus(`Solution: ${moves.length} moves. Step through them below.`);
+        setStatus(`Solution: ${outcome.moves.length} moves. Step through them below.`);
       }
     } catch (error) {
-      const message = (error as Error).message;
-      setStatus(
-        message.includes('bad-scan')
-          ? 'Could not read the cube — check the colours (each must appear 9 times) and try again.'
-          : `Solve failed: ${message}`,
-      );
+      setStatus('');
+      setDiagnosis({
+        blame: 'scan',
+        headline: 'Something went wrong while solving.',
+        detail: (error as Error).message,
+      });
     }
     setBusy(false);
+  };
+
+  // Play the solution computed for the REPAIRED cube. Turning cannot fix a
+  // mis-assembled cube, but it can bring everything else home: these moves solve
+  // the whole cube except the one piece that is physically in wrong, which is left
+  // sitting in its own place, visibly wrong. That leftover IS the diagnosis.
+  const handleSolveAnyway = () => {
+    if (busy || !anyway) return;
+    const { moves, defect } = anyway;
+    clearDiagnosis();
+    setInitialColors(cubeColors.map((face) => face.map((row) => [...row])));
+    setSolution(moves);
+    setStep(0);
+    setExpectedDefect(defect);
+    setStatus(
+      moves.length === 0
+        ? 'Nothing to turn — the cube is already as solved as it can get.'
+        : `Solution: ${moves.length} moves. It will not finish clean — see below.`,
+    );
   };
 
   const stepForward = async () => {
@@ -180,6 +266,17 @@ const RubiksCubeApp: React.FC = () => {
       newColors[currentSide] = data.colors;
       return newColors;
     });
+    // Keep the camera's own read of this face alongside the colours it produced.
+    // The colours are remembered too, so if the grid is later turned or scrambled
+    // these measurements can be recognised as stale instead of being trusted.
+    if (data.distances) {
+      scanReadingsRef.current[currentSide] = {
+        colors: data.colors.map((row) => [...row]),
+        distances: data.distances,
+      };
+    } else {
+      scanReadingsRef.current[currentSide] = null;
+    }
   };
 
   const handleOverlayDataCaptured = (data: OverlayData) => {
@@ -211,6 +308,7 @@ const RubiksCubeApp: React.FC = () => {
     clearSolution();
     setInitialColors([]);
     setStatus('');
+    clearDiagnosis();
     setCubeColors(blankCubeColors());
     setNewSide(sideOrder[0]);
   };
@@ -231,8 +329,33 @@ const RubiksCubeApp: React.FC = () => {
 
   const solved = solution.length > 0 && step === solution.length;
 
+  // A live count while scanning, so "ten yellows" shows up on the face that caused
+  // it rather than at the end. A colour past nine is already impossible.
+  const tally = useMemo(() => colorTally(cubeColors), [cubeColors]);
+
   const scannerBlock = (
     <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px', fontSize: '0.78rem' }}>
+        {tally.tallies.map((t) => (
+          <span
+            key={t.color}
+            title={t.over ? `${t.color} already appears more than nine times` : `${t.color}: ${t.count} of 9`}
+            style={{
+              padding: '1px 6px',
+              borderRadius: '10px',
+              // A colour past nine is already impossible, so it gets its own
+              // background and text -- readable whichever theme the page is in.
+              // The normal chips stay transparent and inherit, which is safe.
+              border: `1px solid ${t.over ? '#d48b8b' : '#8886'}`,
+              background: t.over ? '#fbeeee' : 'transparent',
+              color: t.over ? '#7a2626' : 'inherit',
+              fontWeight: t.over ? 600 : 400,
+            }}
+          >
+            {t.color} {t.count}/9
+          </span>
+        ))}
+      </div>
       <RubiksCubeRecognizer
         currentSide={currentSide}
         detectionEnabled={detectionEnabled}
@@ -264,6 +387,7 @@ const RubiksCubeApp: React.FC = () => {
         setCubeColors={setCubeColors}
         currentSide={currentSide}
         setCurrentSide={setNewSide}
+        highlight={highlight}
       />
     </div>
   );
@@ -280,6 +404,44 @@ const RubiksCubeApp: React.FC = () => {
         Reset
       </button>
       {status && <p style={{ fontSize: '0.85rem', marginTop: '6px' }}>{status}</p>}
+
+      {diagnosis && (
+        <div
+          role="alert"
+          style={{
+            marginTop: '10px',
+            padding: '10px 12px',
+            borderRadius: '6px',
+            border: `1px solid ${DIAGNOSIS_TONE[diagnosis.blame].border}`,
+            background: DIAGNOSIS_TONE[diagnosis.blame].background,
+            color: DIAGNOSIS_TONE[diagnosis.blame].text,
+            textAlign: 'left',
+          }}
+        >
+          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>
+            {DIAGNOSIS_TONE[diagnosis.blame].icon} {diagnosis.headline}
+          </p>
+          <p style={{ margin: '6px 0 0', fontSize: '0.85rem', lineHeight: 1.45 }}>
+            {diagnosis.detail}
+          </p>
+          {anyway && (
+            <div style={{ marginTop: '10px' }}>
+              <button
+                onClick={handleSolveAnyway}
+                disabled={busy}
+                style={{ ...PANEL_BUTTON, opacity: busy ? 0.5 : 1 }}
+              >
+                Solve it anyway
+              </button>
+              {anyway.defect && (
+                <p style={{ margin: '6px 0 0', fontSize: '0.8rem', opacity: 0.85, lineHeight: 1.4 }}>
+                  {anyway.moves.length} moves, and {anyway.defect.text}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {solution.length > 0 && (
         <div
@@ -301,8 +463,14 @@ const RubiksCubeApp: React.FC = () => {
           </div>
 
           <div style={{ fontSize: '2rem', textAlign: 'center', margin: '8px 0', minHeight: '2.4rem' }}>
-            {solved ? '✓ Solved' : solution[step]}
+            {solved ? (expectedDefect ? '🧩 As far as it goes' : '✓ Solved') : solution[step]}
           </div>
+
+          {solved && expectedDefect && (
+            <p style={{ margin: '0 0 10px', fontSize: '0.82rem', lineHeight: 1.45, textAlign: 'left' }}>
+              Everything is home except one piece: {expectedDefect.text}
+            </p>
+          )}
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
             {solution.map((move, index) => (

@@ -10,6 +10,17 @@ the Free Software Foundation, either version 3 of the License, or
 
 import createJorcsModule, { type Cube, type JorcsModule } from './wasm/jorcs.js';
 import { moveToRotations } from './cubeColors';
+import {
+  type Defect,
+  type Explanation,
+  type ScanReading,
+  type StickerFix,
+  buildRelabelCosts,
+  describeDefect,
+  explainAnalysis,
+  explainPreflight,
+  preflight,
+} from './cubeDiagnosis';
 
 let modulePromise: Promise<JorcsModule> | null = null;
 let solverPromise: Promise<JorcsModule> | null = null;
@@ -49,32 +60,99 @@ export async function solveScramble(scramble: string): Promise<string[]> {
   return result.length > 0 ? result.split(' ') : [];
 }
 
-// Quarter-turn moves, used to build scrambles (the solver returns half turns too).
+export type SolveOutcome =
+  | { kind: 'solved'; moves: string[] }
+  | {
+      kind: 'fault';
+      explanation: Explanation;
+      // Facelet indices (0..53) worth pointing at on the cube.
+      highlight: number[];
+      // Re-readings of one or two squares that would make this a real cube.
+      fixes?: StickerFix[];
+      // For an unsolvable-but-well-formed cube: a real solution, and what it will
+      // leave behind once played on the real cube.
+      anywayMoves?: string[];
+      defect?: Defect;
+    }
+  | { kind: 'error'; message: string };
+
 // Solve a SCANNED cube given as the viewer's colour grid (6 faces of 3x3 colour
-// names, in side order R,L,U,D,F,B). The six centres define which colour belongs
-// to which face; each sticker is mapped to that face-index (0..5) and handed to
-// the solver as 54 facelets. Throws with "ERROR:bad-scan" if the colours don't
-// form a real, solvable cube (a misread or incompletely-scanned cube).
-export async function solveScannedColors(cubeColors: string[][][]): Promise<string[]> {
-  const module = await ensureSolver();
-  const colorToFace = new Map<string, number>();
-  for (let f = 0; f < 6; f++) {
-    colorToFace.set(cubeColors[f][1][1], f);
+// strings, in side order R,L,U,D,F,B).
+//
+// The grid is checked before it is encoded: every sticker known, the six centres
+// six different colours, nine of each colour. Only then do the centres define
+// which colour belongs to which face, and each sticker become that face-index
+// (0..5) in the 54 facelets the solver takes.
+export async function solveScannedColors(
+  cubeColors: string[][][],
+  scanReadings: readonly ScanReading[] = [],
+): Promise<SolveOutcome> {
+  const checked = preflight(cubeColors);
+  if (!checked.ok) {
+    return { kind: 'fault', explanation: explainPreflight(checked.fault), highlight: [] };
   }
+
+  const module = await ensureSolver();
+  const { ids, faceOfColor } = checked;
   const facelets = new Uint8Array(54);
   for (let f = 0; f < 6; f++) {
     for (let r = 0; r < 3; r++) {
       for (let c = 0; c < 3; c++) {
-        const face = colorToFace.get(cubeColors[f][r][c]);
-        facelets[f * 9 + r * 3 + c] = face === undefined ? 255 : face;
+        facelets[f * 9 + r * 3 + c] = faceOfColor[ids[f][r][c]];
       }
     }
   }
-  const result = module.twoPhaseSolveFacelets(facelets);
-  if (result.startsWith('ERROR')) {
-    throw new Error(result);
+
+  // The camera's own confidence, but only for faces that still look the way they
+  // did when measured -- see buildRelabelCosts.
+  const costs = buildRelabelCosts(cubeColors, scanReadings);
+  const analysis = module.analyzeFacelets(facelets, costs ?? new Uint16Array(0));
+  if (analysis.status === 'solved') {
+    if (checked.countFault) {
+      // Shouldn't happen -- a solvable cube always has nine of each -- but never
+      // report success while something is demonstrably off.
+      return {
+        kind: 'fault',
+        explanation: explainPreflight(checked.countFault),
+        highlight: [],
+      };
+    }
+    const solution = analysis.solution ?? '';
+    return { kind: 'solved', moves: solution.length > 0 ? solution.split(' ') : [] };
   }
-  return result.length > 0 ? result.split(' ') : [];
+  if (analysis.status === 'solver-failed') {
+    return {
+      kind: 'error',
+      message: 'The solver ran out of room on this cube. Please try again.',
+    };
+  }
+  if (analysis.status === 'bad-input') {
+    return { kind: 'error', message: 'The cube could not be read.' };
+  }
+
+  const anyway = analysis.repairedSolution;
+  const fixes = analysis.suggestions ?? [];
+  // Point at the squares a fix would change, when we have one -- more useful than
+  // the whole implicated piece.
+  const fixHighlight = fixes.length > 0
+    ? [fixes[0].faceletA, ...(fixes[0].faceletB >= 0 ? [fixes[0].faceletB] : [])]
+    : [];
+  return {
+    kind: 'fault',
+    explanation: explainAnalysis(analysis.faults, analysis, {
+      countFault: checked.countFault,
+      faceRotation: analysis.faceRotation,
+      fixes,
+      fixCount: analysis.suggestionCount ?? fixes.length,
+    }),
+    fixes,
+    highlight:
+      analysis.suggestionCount === 1 && fixHighlight.length > 0
+        ? fixHighlight
+        : (analysis.highlightFacelets ?? []),
+    anywayMoves: anyway && anyway.length > 0 ? anyway.split(' ') : anyway === '' ? [] : undefined,
+    defect: analysis.repair ? (describeDefect(cubeColors, analysis.repair) ?? undefined) : undefined,
+  };
 }
 
 export const MOVES = ['U', "U'", 'D', "D'", 'F', "F'", 'B', "B'", 'L', "L'", 'R', "R'"];

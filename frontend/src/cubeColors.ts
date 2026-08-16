@@ -24,10 +24,13 @@ export function solvedCubeColors(): string[][][] {
   );
 }
 
+// The colour of a sticker that hasn't been scanned or picked yet.
+export const BLANK_COLOR = 'grey';
+
 // A blank, unscanned cube (every sticker grey) -- the "start from scratch" state.
 export function blankCubeColors(): string[][][] {
   return Array.from({ length: 6 }, () =>
-    Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => 'grey')),
+    Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => BLANK_COLOR)),
   );
 }
 

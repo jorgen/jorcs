@@ -1,5 +1,6 @@
 // useCubeStore.ts
 import { create } from 'zustand';
+import { BLANK_COLOR } from './cubeColors';
 
 type HSV = { h: number; s: number; v: number };
 
@@ -7,10 +8,14 @@ type OverlayData = {
   colors: string[][];
   hsvValues: HSV[][];
   subImages: string[][];
+  // How far each square's reading sat from every canonical colour. Absent when the
+  // squares were picked by hand rather than measured -- a human correction is not
+  // something to second-guess.
+  distances?: number[][][];
 };
 
 function createDefaultOverlayData(): OverlayData {
-  const defaultColor = 'grey';
+  const defaultColor = BLANK_COLOR;
   const defaultHSV = { h: 0, s: 0, v: 50 }; // Grey in HSV
   const rows = 3;
   const cols = 3;
@@ -37,7 +42,7 @@ function createInitialCubeColors() {
     for (let j = 0; j < 3; j++) {
       initialCubeColors[i][j] = [];
       for (let k = 0; k < 3; k++) {
-        initialCubeColors[i][j][k] = 'grey';
+        initialCubeColors[i][j][k] = BLANK_COLOR;
       }
     }
   }

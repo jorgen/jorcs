@@ -185,6 +185,17 @@ inline constexpr int EDGE_POS[12][3] = {
 
 } // namespace detail
 
+// Which slots of a scan didn't read as a real cubie. Bitmasks rather than lists so
+// this stays allocation-free (the solver builds with -fno-exceptions).
+struct SlotStatus
+{
+  uint32_t bad_corners = 0; // bit i: corner slot i's colours are not a real corner
+  uint32_t bad_edges = 0;   // bit i: edge slot i's colours are not a real edge
+  bool range_error = false; // a facelet value outside 0..5
+
+  bool ok() const { return !range_error && bad_corners == 0 && bad_edges == 0; }
+};
+
 class FaceletReconstructor
 {
 public:
@@ -195,21 +206,90 @@ public:
   // note this does NOT check global solvability -- pair it with isValidCube.
   bool reconstruct(const uint8_t facelets[54], Cube &cube) const
   {
+    return reconstructDetailed(facelets, cube).ok();
+  }
+
+  // As reconstruct(), but says WHICH slots failed instead of stopping at the first.
+  // Slots that didn't read leave 0xFF in the cube, so a caller that ignores the
+  // status can't mistake a hole for slot 0.
+  SlotStatus reconstructDetailed(const uint8_t facelets[54], Cube &cube) const
+  {
+    SlotStatus status;
     for (int i = 0; i < 8; ++i)
     {
-      const int val = corner_lut_[i][cornerKey(facelets, i)];
+      const int key = cornerKey(facelets, i);
+      if (key < 0)
+        status.range_error = true;
+      const int val = key < 0 ? -1 : corner_lut_[i][key];
       if (val < 0)
-        return false;
+      {
+        status.bad_corners |= 1u << i;
+        cube.corner_pos[i] = 0xFF;
+        cube.corner_ori[i] = 0xFF;
+        continue;
+      }
       cube.corner_pos[i] = static_cast<uint8_t>(val / 3);
       cube.corner_ori[i] = static_cast<uint8_t>(val % 3);
     }
     for (int i = 0; i < 12; ++i)
     {
-      const int val = edge_lut_[i][edgeKey(facelets, i)];
+      const int key = edgeKey(facelets, i);
+      if (key < 0)
+        status.range_error = true;
+      const int val = key < 0 ? -1 : edge_lut_[i][key];
       if (val < 0)
-        return false;
+      {
+        status.bad_edges |= 1u << i;
+        cube.edge_pos[i] = 0xFF;
+        cube.edge_ori[i] = 0xFF;
+        continue;
+      }
       cube.edge_pos[i] = static_cast<uint8_t>(val / 2);
       cube.edge_ori[i] = static_cast<uint8_t>(val % 2);
+    }
+    return status;
+  }
+
+  // The facelet indices of the stickers making up a slot, so a caller can point at
+  // the squares a bad piece is made of (corners in ascending face order).
+  const int *cornerStickers(int slot) const { return corner_st_[slot]; }
+  const int *edgeStickers(int slot) const { return edge_st_[slot]; }
+
+  // One slot's piece*3+ori / piece*2+ori, or -1 if those colours aren't a real
+  // cubie. Re-keys a single slot, so a search over changed stickers doesn't have
+  // to redo all twenty.
+  int cornerAt(const uint8_t facelets[54], int slot) const
+  {
+    const int key = cornerKey(facelets, slot);
+    return key < 0 ? -1 : corner_lut_[slot][key];
+  }
+  int edgeAt(const uint8_t facelets[54], int slot) const
+  {
+    const int key = edgeKey(facelets, slot);
+    return key < 0 ? -1 : edge_lut_[slot][key];
+  }
+
+  // build() fills the tables by random scrambling, with no proof it covered every
+  // case. A gap would make a CORRECT scan report an impossible cubie -- i.e. blame
+  // the user for our bug -- so the coverage is worth asserting: every corner slot
+  // must key all 8 pieces x 3 orientations, every edge slot all 12 x 2.
+  bool lutsComplete() const
+  {
+    for (const auto &slot : corner_lut_)
+    {
+      int filled = 0;
+      for (const int v : slot)
+        filled += v >= 0;
+      if (filled != 24)
+        return false;
+    }
+    for (const auto &slot : edge_lut_)
+    {
+      int filled = 0;
+      for (const int v : slot)
+        filled += v >= 0;
+      if (filled != 24)
+        return false;
     }
     return true;
   }
@@ -220,13 +300,22 @@ private:
   int corner_lut_[8][216]; // key a*36+b*6+c -> piece*3+ori, or -1
   int edge_lut_[12][36];   // key a*6+b       -> piece*2+ori, or -1
 
+  // -1 for any out-of-range facelet. The guard lives here, with the tables it
+  // indexes: an unscanned sticker arrives as 255, and 255*36 is far outside the
+  // 216-entry row.
   int cornerKey(const uint8_t f[54], int i) const
   {
-    return f[corner_st_[i][0]] * 36 + f[corner_st_[i][1]] * 6 + f[corner_st_[i][2]];
+    const int a = f[corner_st_[i][0]], b = f[corner_st_[i][1]], c = f[corner_st_[i][2]];
+    if (a > 5 || b > 5 || c > 5)
+      return -1;
+    return a * 36 + b * 6 + c;
   }
   int edgeKey(const uint8_t f[54], int i) const
   {
-    return f[edge_st_[i][0]] * 6 + f[edge_st_[i][1]];
+    const int a = f[edge_st_[i][0]], b = f[edge_st_[i][1]];
+    if (a > 5 || b > 5)
+      return -1;
+    return a * 6 + b;
   }
 
   static void gridToFacelets(const detail::Grid &g, uint8_t f[54])

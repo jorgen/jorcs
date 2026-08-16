@@ -6,6 +6,7 @@ add_executable(tests
         ida_tests.cpp
         two_phase_tests.cpp
         facelet_tests.cpp
+        diagnose_tests.cpp
 )
 target_compile_definitions(tests PRIVATE DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
 target_link_libraries(tests PUBLIC doctest jorcs)
