@@ -16,13 +16,16 @@ const ColorPicker: React.FC<ColorPaletteProps> = ({ onSelectColor, onClose }) =>
         left: '50%',
         width: '50%',
         transform: 'translate(-50%, -50%)',
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        // The page is dark by default (index.css), so a light panel has to state
+        // its own text colour or it inherits near-white and vanishes.
+        color: '#213547',
         padding: '10px',
         borderRadius: '5px',
         zIndex: 100,
       }}
     >
-      <p>Select a color:</p>
+      <p style={{ marginTop: 0 }}>Select a color:</p>
       <div style={{ display: 'flex', justifyContent: 'space-around' }}>
         {colors.map((color) => (
           <div
@@ -42,7 +45,10 @@ const ColorPicker: React.FC<ColorPaletteProps> = ({ onSelectColor, onClose }) =>
           />
         ))}
       </div>
-      <button onClick={onClose} style={{ marginTop: '10px' }}>
+      <button
+        onClick={onClose}
+        style={{ marginTop: '10px', background: '#213547', color: '#ffffff', border: '1px solid #213547' }}
+      >
         Cancel
       </button>
     </div>
