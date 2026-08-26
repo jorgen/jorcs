@@ -9,6 +9,9 @@ solver/build/
 frontend/src/wasm/jorcs.js
 frontend/src/wasm/jorcs.wasm
 
+# compiled modules for the frontend benchmarks
+frontend/bench/.build/
+
 # TypeScript incremental build cache
 *.tsbuildinfo
 

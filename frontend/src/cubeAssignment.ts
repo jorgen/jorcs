@@ -29,25 +29,26 @@ the Free Software Foundation, either version 3 of the License, or
 //
 // Adapting to the camera and the room -- estimating the illuminant from the cube's
 // known mean reflectance, fitting per-colour reference offsets by EM, re-fitting a
-// gain from the user's corrections, carrying the result between sessions -- was
-// built and measured against this module. None of it earned its place, because the
-// constraint leaves it nothing to do:
+// gain from the user's corrections, carrying the result between sessions -- was all
+// built and measured against this module (bench/calibration.bench.mjs). None of it
+// earned its place. Not because the labelling is flawless: on a cube whose colours
+// sit well away from the references it still gets about 2.7 squares of 54 wrong,
+// and about 3.1 with camera channel cross-talk on top. But calibration does not
+// recover those -- it makes them slightly worse (2.7 -> 3.1, 3.1 -> 3.3), and on a
+// partial scan it is worse again. Nine squares are not a fair sample of six
+// colours, so the illuminant estimate is biased early, and the EM step fits noise
+// and then reinforces its own mistakes.
 //
-//   * On a full cube the labelling is already exact, even for a cube whose colours
-//     sit far from the references and a camera with channel cross-talk. A colour
-//     shift moves all 54 measurements together and leaves the cheapest permutation
-//     unchanged, so there is no error for a calibration to remove. It only starts
-//     failing when the brightest sampled square is about 1.8x the darkest AND
-//     per-square noise reaches 70%, well past a working camera.
-//   * On a partial scan it is worse than doing nothing -- roughly 2.3 -> 3.0 wrong
-//     squares with three faces measured. Nine squares are not a fair sample of six
-//     colours, so the illuminant estimate is biased, and the EM step fits noise and
-//     then reinforces its own mistakes.
+// The reason a colour model has so little to offer here is that the constraint is
+// already close to invariant to what it corrects: a shift in the light moves all 54
+// measurements together and usually leaves the cheapest permutation unchanged. What
+// is left is not a colour-model problem.
 //
-// So it hurts exactly where the user is looking, and is redundant where it would be
-// safe. If this is ever revisited, the thing to change first is measurement quality,
-// not the colour model: a confidently wrong reading costs about 2.2 squares here
-// (it evicts a correct one), while an obviously weak reading costs about 0.3.
+// If this is revisited, change measurement quality first, not the colour model. A
+// confidently wrong reading costs about 2.3 squares (it evicts a correct one of the
+// same colour), while an obviously weak one -- a deep shadow, say -- costs about
+// 0.4, because it does not compete. Letting a doubtful square abstain rather than
+// vote takes a bad reading from 2.3 squares to 0.5; see bench/measurement.bench.mjs.
 
 export type Lab = { L: number; a: number; b: number };
 

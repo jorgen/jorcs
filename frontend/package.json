@@ -7,7 +7,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "bench": "node bench/assignment.bench.mjs && node bench/measurement.bench.mjs && node bench/calibration.bench.mjs"
   },
   "dependencies": {
     "eslint-plugin-react": "^7.37.0",
