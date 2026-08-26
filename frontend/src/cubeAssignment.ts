@@ -25,6 +25,30 @@ the Free Software Foundation, either version 3 of the License, or
 // pinning evicts the weakest holder of that colour and the labelling re-settles
 // around it, which can fix a square on a face scanned a minute ago.
 
+// On why there is no colour calibration here.
+//
+// Adapting to the camera and the room -- estimating the illuminant from the cube's
+// known mean reflectance, fitting per-colour reference offsets by EM, re-fitting a
+// gain from the user's corrections, carrying the result between sessions -- was
+// built and measured against this module. None of it earned its place, because the
+// constraint leaves it nothing to do:
+//
+//   * On a full cube the labelling is already exact, even for a cube whose colours
+//     sit far from the references and a camera with channel cross-talk. A colour
+//     shift moves all 54 measurements together and leaves the cheapest permutation
+//     unchanged, so there is no error for a calibration to remove. It only starts
+//     failing when the brightest sampled square is about 1.8x the darkest AND
+//     per-square noise reaches 70%, well past a working camera.
+//   * On a partial scan it is worse than doing nothing -- roughly 2.3 -> 3.0 wrong
+//     squares with three faces measured. Nine squares are not a fair sample of six
+//     colours, so the illuminant estimate is biased, and the EM step fits noise and
+//     then reinforces its own mistakes.
+//
+// So it hurts exactly where the user is looking, and is redundant where it would be
+// safe. If this is ever revisited, the thing to change first is measurement quality,
+// not the colour model: a confidently wrong reading costs about 2.2 squares here
+// (it evicts a correct one), while an obviously weak reading costs about 0.3.
+
 export type Lab = { L: number; a: number; b: number };
 
 // A measured square. `facelet` is face * 9 + row * 3 + col, the same numbering
