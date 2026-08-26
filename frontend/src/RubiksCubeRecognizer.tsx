@@ -190,7 +190,6 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
               } else {
                 cubeDetectionCounter.current = 0;
               }
-              detectionResult.destroy();
             }
           }
 
@@ -438,6 +437,15 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     ctx.restore();
   };
 
+  // Is a 3x3 face sitting in the scan region?
+  //
+  // Only the two lines BETWEEN the stickers are required. The old check also
+  // demanded the two outer edges, which sit exactly on the crop boundary -- so the
+  // cube had to be squared up to within a few pixels of filling the region, and
+  // being slightly too small or too large failed even with the grout dead centre.
+  // (It asked for 80% of four lines, which needs four: 0.8 * 4 = 3.2.) The inner
+  // pair is what actually identifies a face, and they are the lines the camera sees
+  // most reliably, so they decide it; the outer edges are no longer consulted.
   const compareLinesWithOverlay = (
     detectedHorizontalLines: number[],
     detectedVerticalLines: number[],
@@ -445,48 +453,16 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   ): boolean => {
     const gridSize = 3;
     const gridLength = Math.min(canvas.width, canvas.height) * 0.5;
+    const step = gridLength / gridSize;
+    const tolerance = gridLength * 0.05;
 
-    // Expected positions of the grid lines
-    const expectedVerticalLines = [];
-    for (let i = 0; i <= gridSize; i++) {
-      const x = i * (gridLength / gridSize);
-      expectedVerticalLines.push(x);
-    }
+    const innerLines = [step, 2 * step];
+    const found = (expected: number[], detected: number[]) =>
+      expected.every((position) =>
+        detected.some((candidate) => Math.abs(candidate - position) < tolerance),
+      );
 
-    const expectedHorizontalLines = [];
-    for (let i = 0; i <= gridSize; i++) {
-      const y = i * (gridLength / gridSize);
-      expectedHorizontalLines.push(y);
-    }
-
-    const tolerance = gridLength * 0.05; // 5% of grid length
-
-    // Compare detected vertical lines with expected vertical lines
-    const verticalMatches = expectedVerticalLines.filter((expectedX) =>
-      detectedVerticalLines.some(
-        (detectedX) => Math.abs(detectedX - expectedX) < tolerance,
-      ),
-    );
-
-    // Compare detected horizontal lines with expected horizontal lines
-    const horizontalMatches = expectedHorizontalLines.filter((expectedY) =>
-      detectedHorizontalLines.some(
-        (detectedY) => Math.abs(detectedY - expectedY) < tolerance,
-      ),
-    );
-
-    // Decide whether there is a significant overlap
-    const verticalMatchRatio =
-      verticalMatches.length / expectedVerticalLines.length;
-    const horizontalMatchRatio =
-      horizontalMatches.length / expectedHorizontalLines.length;
-
-    const matchThreshold = 0.8; // 80% of lines should match
-
-    return (
-      verticalMatchRatio >= matchThreshold &&
-      horizontalMatchRatio >= matchThreshold
-    );
+    return found(innerLines, detectedVerticalLines) && found(innerLines, detectedHorizontalLines);
   };
 
   const captureFrame = () => {
@@ -520,6 +496,19 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
           }}
         />
       )}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px' }}>
+        <button
+          type="button"
+          onClick={() => {
+            cubeDetectedRef.current = true;
+            setCubeDetected(true);
+            captureFrame();
+          }}
+          style={{ background: '#213547', color: '#ffffff', border: '1px solid #213547' }}
+        >
+          Capture now
+        </button>
+      </div>
       {showColorPalette && (
         <ColorPicker
           onSelectColor={handleColorSelect}
