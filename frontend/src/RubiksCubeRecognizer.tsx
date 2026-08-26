@@ -73,6 +73,28 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   const [selectedSquare, setSelectedSquare] = useState<GridSquare | null>(null);
   const [showColorPalette, setShowColorPalette] = useState(false);
 
+  // The render loop lives as long as the camera does, so it must not close over
+  // values that change while it runs. Listing them as dependencies of the camera
+  // effect is what makes every capture and every hand-corrected square stop the
+  // MediaStream and call getUserMedia again -- which also resets the camera's
+  // auto-exposure and white balance in the middle of a scan. Mirror them into
+  // refs and read them per frame instead. onOverlayDataCaptured is mirrored for
+  // the same reason: it closes over the parent's currentSide, so a copy taken
+  // once at camera start would file a later face's colours under the side that
+  // happened to be showing then.
+  const detectionEnabledRef = useRef(detectionEnabled);
+  const cubeDetectedRef = useRef(cubeDetected);
+  const currentSideRef = useRef(currentSide);
+  const overlayDataRef = useRef(overlayData);
+  const onCapturedRef = useRef(onOverlayDataCaptured);
+  useEffect(() => {
+    detectionEnabledRef.current = detectionEnabled;
+    cubeDetectedRef.current = cubeDetected;
+    currentSideRef.current = currentSide;
+    overlayDataRef.current = overlayData;
+    onCapturedRef.current = onOverlayDataCaptured;
+  });
+
   useEffect(() => {
     // Wait for OpenCV.js to be ready
     const checkOpenCV = setInterval(() => {
@@ -89,6 +111,11 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
     if (!opencvReady) return;
 
     const video = videoRef.current;
+    // The stream is held here rather than read back off video.srcObject, so one
+    // that arrives after teardown is still stopped instead of being left running
+    // with nothing pointing at it.
+    let cancelled = false;
+    let stream: MediaStream | null = null;
 
     const initCamera = async () => {
       try {
@@ -96,8 +123,14 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
           video: true,
         };
         const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (cancelled) {
+          mediaStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = mediaStream;
         video.srcObject = mediaStream;
         await video.play();
+        if (cancelled) return;
         renderFrame();
       } catch (error) {
         console.error('Error accessing camera:', error);
@@ -130,7 +163,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
           ctx.restore();
 
           // Cube detection logic
-          if (detectionEnabled) {
+          if (detectionEnabledRef.current) {
             const detectionResult = performDetection();
             if (detectionResult) {
               const {
@@ -149,9 +182,12 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
                 cubeDetectionCounter.current += 1;
                 if (
                   cubeDetectionCounter.current >= cubeDetectionThreshold &&
-                  !cubeDetected
+                  !cubeDetectedRef.current
                 ) {
-                  // Cube has been detected consistently, capture the frame
+                  // Latch on the ref, not on the state: setCubeDetected only
+                  // takes effect at the next render, so a state-only guard lets
+                  // the frames in between capture the same face over again.
+                  cubeDetectedRef.current = true;
                   setCubeDetected(true);
                   captureFrame();
                 }
@@ -163,33 +199,36 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
           }
 
           // Draw the overlay grid with visual feedback (adjusted for flipped canvas)
-          drawOverlay(ctx, cubeDetected ? 'green' : 'red');
+          drawOverlay(ctx, cubeDetectedRef.current ? 'green' : 'red');
 
-          drawOverlayColors(ctx, overlayData);
+          drawOverlayColors(ctx, overlayDataRef.current);
 
           // Draw side overlay (unaffected by flip)
-          drawSideOverlay(ctx, currentSide);
+          drawSideOverlay(ctx, currentSideRef.current);
         }
       }
-      animationFrameId.current = requestAnimationFrame(renderFrame);
+      if (!cancelled) {
+        animationFrameId.current = requestAnimationFrame(renderFrame);
+      }
     };
 
     initCamera();
 
     return () => {
-      // Clean up the media stream and animation frame on unmount
-      const tracks = video.srcObject
-        ? (video.srcObject as MediaStream).getTracks()
-        : [];
-      tracks.forEach((track) => track.stop());
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
     };
-  }, [opencvReady, detectionEnabled, cubeDetected, currentSide, overlayData]);
+  }, [opencvReady]);
 
   useEffect(() => {
     if (detectionEnabled) {
+      // Release the capture latch here rather than waiting for the state to come
+      // back round, so Retake re-arms on the very next frame.
+      cubeDetectedRef.current = false;
       setCubeDetected(false);
       cubeDetectionCounter.current = 0;
     }
@@ -455,7 +494,7 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
 
       const result = recognizeColorsFromGrid(offscreenCtx, offscreenCanvas);
       // Pass the overlay data to the parent via callback
-      onOverlayDataCaptured(result);
+      onCapturedRef.current(result);
     }
   };
 
