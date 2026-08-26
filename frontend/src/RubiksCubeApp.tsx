@@ -6,7 +6,7 @@ import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from '
 import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './solver';
 import { blankCubeColors, colorsAfterMoves, invertMove, solvedCubeColors } from './cubeColors';
 import { COLOR_NAMES, type Defect, type Explanation, colorId, colorTally } from './cubeDiagnosis';
-import { CANONICAL_LABS } from './colorRecognition';
+import { CANONICAL_LABS, classifyLab } from './colorRecognition';
 import { type Lab, type Measurement, type Pin, relabelCube } from './cubeAssignment';
 
 const INTRO_SEEN_KEY = 'jorcs-intro-seen';
@@ -90,29 +90,27 @@ const RubiksCubeApp: React.FC = () => {
   const scanRef = useRef<{
     labs: (Lab | null)[];
     distances: (number[] | null)[];
-    provisional: (string | null)[];
     pins: (number | null)[];
   }>({
     labs: Array(54).fill(null),
     distances: Array(54).fill(null),
-    provisional: Array(54).fill(null),
     pins: Array(54).fill(null),
   });
   // The grid the last relabelling wrote. Turning the cube permutes the colours but
   // not the measurements, so if the live grid has drifted from this one every
   // measurement now describes a square that has moved, and the lot is dropped.
   const appliedRef = useRef<string[][][] | null>(null);
-  // The colour each square was given on its own, before the nine-of-each rule was
-  // applied. The tally counts these: an assignment can never report ten yellows,
-  // so counting its output would quietly retire the app's ability to notice a face
-  // scanned twice.
+  // What each square looks like read on its own, before the nine-of-each rule is
+  // applied. Derived from the stored measurement every time rather than remembered,
+  // so that a hand-correction -- which resends the whole face, now carrying the
+  // labelled colours -- cannot quietly overwrite the camera's own reading with the
+  // answer that reading was used to produce.
   const [rawColors, setRawColors] = useState<string[][][] | null>(null);
 
   const clearScan = () => {
     scanRef.current = {
       labs: Array(54).fill(null),
       distances: Array(54).fill(null),
-      provisional: Array(54).fill(null),
       pins: Array(54).fill(null),
     };
     scanReadingsRef.current = Array.from({ length: 6 }, () => null);
@@ -314,7 +312,10 @@ const RubiksCubeApp: React.FC = () => {
   // Deliberately not per face: committing a face and moving on makes the last face
   // markedly worse than doing nothing, because the early mistakes have already
   // spent the capacity and whatever is left gets forced onto the leftovers.
-  const applyRelabelling = (previous: string[][][]) => {
+  //
+  // Returns the grid it settled on, so the camera overlay can be shown the same
+  // answer the cube gets.
+  const applyRelabelling = (previous: string[][][]): string[][][] | null => {
     const scan = scanRef.current;
     const measurements: Measurement[] = [];
     const pins: Pin[] = [];
@@ -324,7 +325,7 @@ const RubiksCubeApp: React.FC = () => {
       const pin = scan.pins[facelet];
       if (pin !== null) pins.push({ facelet, color: pin });
     }
-    if (measurements.length === 0 && pins.length === 0) return;
+    if (measurements.length === 0 && pins.length === 0) return null;
 
     const { colorOf, overPinned } = relabelCube(measurements, pins, CANONICAL_LABS);
 
@@ -335,7 +336,11 @@ const RubiksCubeApp: React.FC = () => {
       const r = Math.floor((facelet % 9) / 3);
       const c = facelet % 3;
       next[f][r][c] = COLOR_NAMES[id];
-      raw[f][r][c] = scan.provisional[facelet] ?? COLOR_NAMES[id];
+      const measured = scan.labs[facelet];
+      const pin = scan.pins[facelet];
+      // A square the user set by hand is their word, not a reading, so it counts as
+      // itself; anything else counts as whatever the camera made of it alone.
+      raw[f][r][c] = pin !== null ? COLOR_NAMES[pin] : measured ? classifyLab(measured) : COLOR_NAMES[id];
     }
 
     // Hand the solver the same measurements, now paired with the colours the
@@ -377,10 +382,10 @@ const RubiksCubeApp: React.FC = () => {
       pinWarningRef.current = false;
       setDiagnosis(null);
     }
+    return next;
   };
 
   const handleSetOverlayData = (data: OverlayData) => {
-    setOverlayData(data);
     // If the cube has been turned since the last relabelling -- scrambled, solved,
     // stepped through -- the stored measurements describe squares that have since
     // moved. Start the scan over rather than pairing them with the wrong squares.
@@ -395,16 +400,22 @@ const RubiksCubeApp: React.FC = () => {
         if (lab) {
           scan.labs[facelet] = lab;
           scan.distances[facelet] = data.distances?.[r]?.[c] ?? null;
-          scan.provisional[facelet] = data.colors[r][c];
         }
         if (data.pinned?.[r]?.[c]) {
           const id = colorId(data.colors[r][c]);
           scan.pins[facelet] = id >= 0 ? id : null;
-          scan.provisional[facelet] = data.colors[r][c];
         }
       }
     }
-    applyRelabelling(cubeColors);
+    // The overlay is shown the labelling, not the first guess that fed it. They are
+    // not the same answer: reading a square on its own draws the white/yellow line
+    // at chroma 30, while weighing the whole cube draws it nearer 43, so a pale or
+    // warm-lit square could come up yellow in the camera and white on the cube. One
+    // of those had to win, and it has to be the one the cube is actually built from.
+    const assigned = applyRelabelling(cubeColors);
+    setOverlayData(
+      assigned ? { ...data, colors: assigned[currentSide].map((row) => [...row]) } : data,
+    );
   };
 
   const handleOverlayDataCaptured = (data: OverlayData) => {
@@ -460,7 +471,15 @@ const RubiksCubeApp: React.FC = () => {
 
   // A live count while scanning, so "ten yellows" shows up on the face that caused
   // it rather than at the end. A colour past nine is already impossible.
-  const tally = useMemo(() => colorTally(rawColors ?? cubeColors), [rawColors, cubeColors]);
+  const tally = useMemo(() => colorTally(cubeColors), [cubeColors]);
+  // The labelling can never report ten yellows -- it is not allowed to -- so on its
+  // own it could not tell you that a face had been scanned twice. The camera's
+  // unconstrained reading still can, and that is all it is kept for now: a warning,
+  // not a second set of counts to disagree with the first.
+  const cameraOverCount = useMemo(
+    () => (rawColors ? colorTally(rawColors).tallies.filter((t) => t.over) : []),
+    [rawColors],
+  );
 
   const scannerBlock = (
     <div>
@@ -485,6 +504,24 @@ const RubiksCubeApp: React.FC = () => {
           </span>
         ))}
       </div>
+      {cameraOverCount.length > 0 && (
+        <p
+          style={{
+            margin: '0 0 8px',
+            fontSize: '0.78rem',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            border: '1px solid #d9b271',
+            background: '#fdf5e6',
+            color: '#6b4a12',
+          }}
+        >
+          The camera read{' '}
+          {cameraOverCount.map((t) => `${t.count} ${t.color}s`).join(' and ')} — more than a
+          cube has. The squares below have been fitted to a real cube anyway, so check that no
+          face was scanned twice.
+        </p>
+      )}
       <RubiksCubeRecognizer
         currentSide={currentSide}
         detectionEnabled={detectionEnabled}

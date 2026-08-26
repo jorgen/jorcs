@@ -185,7 +185,7 @@ function median(values: number[]): number {
 // why every shadowed or washed-out square used to come back green regardless of
 // its actual hue, and why a dimmed orange drifted to red. An angle has no radial
 // term, so contraction cannot move the answer at all.
-function classifyLab(lab: Lab): string {
+export function classifyLab(lab: Lab): string {
   const chroma = Math.hypot(lab.a, lab.b);
   if (chroma < WHITE_MAX_CHROMA && lab.L > WHITE_MIN_LIGHTNESS) {
     return 'white';
