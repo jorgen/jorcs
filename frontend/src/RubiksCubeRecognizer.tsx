@@ -11,11 +11,7 @@ type GridSquare = {
   size: number;
 };
 
-type OverlayData = {
-  colors: string[][];
-  hsvValues: { h: number; s: number; v: number }[][];
-  subImages: string[][];
-};
+import type { OverlayData } from './useCubeStore';
 
 type RubiksCubeRecognizerProps = {
   currentSide: number;
@@ -281,15 +277,26 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
   const handleColorSelect = (color: string) => {
     if (!selectedSquare) return;
 
-    const updatedOverlayData = { ...overlayData };
-    updatedOverlayData.colors = overlayData.colors.map((row, rowIndex) =>
-      row.map((colColor, colIndex) => {
-        if (rowIndex === selectedSquare.row && colIndex === selectedSquare.col) {
-          return color;
-        }
-        return colColor;
-      }),
-    );
+    const isPicked = (rowIndex: number, colIndex: number) =>
+      rowIndex === selectedSquare.row && colIndex === selectedSquare.col;
+    // The square is marked as picked as well as recoloured. Without that the app
+    // cannot tell a colour the user chose from one the camera guessed, and would
+    // go on treating this square as evidence -- including as the square most
+    // likely to have been misread.
+    const previouslyPinned = overlayData.pinned;
+    const updatedOverlayData: OverlayData = {
+      ...overlayData,
+      colors: overlayData.colors.map((row, rowIndex) =>
+        row.map((colColor, colIndex) => (isPicked(rowIndex, colIndex) ? color : colColor)),
+      ),
+      pinned: Array.from({ length: 3 }, (_, rowIndex) =>
+        Array.from(
+          { length: 3 },
+          (_, colIndex) =>
+            isPicked(rowIndex, colIndex) || (previouslyPinned?.[rowIndex]?.[colIndex] ?? false),
+        ),
+      ),
+    };
 
     // Notify parent component of the updated overlayData
     onOverlayDataUpdated(updatedOverlayData);

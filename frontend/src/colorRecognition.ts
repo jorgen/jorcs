@@ -1,19 +1,25 @@
+import type { Lab } from './cubeAssignment';
+import { FACE_COLORS } from './cubeColors';
+
 type HSV = {
   h: number;
   s: number;
   v: number;
 };
 
-type Lab = {
-  L: number;
-  a: number;
-  b: number;
-};
-
-type RecognizedGrid = {
+export type RecognizedGrid = {
+  // What each square looks like on its own, against the fixed references. This is
+  // a first opinion, not the answer: cubeAssignment gets the last word once the
+  // whole cube can be weighed at once. Kept because it is the only reading that
+  // has not had the nine-of-each rule imposed on it, which makes it the honest
+  // input to the colour tally -- an assignment can never report ten yellows, so
+  // without this the app would lose its ability to notice a face scanned twice.
   colors: string[][];
-  hsvValues: HSV[][];
-  subImages: string[][];
+  // What the camera actually measured, per square. The raw material every later
+  // model needs: keeping only a classification, or only distances computed under
+  // whichever classifier was in force at capture time, means a face can never be
+  // re-read under a better one.
+  labs: Lab[][];
   // Per square, how far the reading sat from each of the six canonical colours.
   distances: number[][][];
 };
@@ -37,6 +43,15 @@ const REFERENCE_COLORS: { name: string; lab: Lab }[] = [
 // angles rather than straight-line distance -- see classifyLab.
 const REFERENCE_HUES = REFERENCE_COLORS.map((ref) => Math.atan2(ref.lab.b, ref.lab.a));
 
+// The same six colours the viewer paints and cubeDiagnosis counts, in CIELAB and
+// in canonical colour-id order (red, orange, white, yellow, green, blue). Derived
+// from FACE_COLORS so there is one place to change a sticker colour, rather than
+// a second list here that can drift out of step with the cube on screen.
+export const CANONICAL_LABS: Lab[] = FACE_COLORS.map((hex) => {
+  const value = parseInt(hex.slice(1), 16);
+  return rgbToLab((value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff);
+});
+
 // A sticker is white when it is bright and nearly colourless (low chroma),
 // which is illuminant-robust — unlike the old absolute saturation/value test
 // that stole glary yellow/orange stickers as "white".
@@ -47,15 +62,15 @@ const WHITE_MIN_LIGHTNESS = 55;
  * Recognizes colors from the grid in the canvas context.
  * @param ctx - The canvas rendering context.
  * @param canvas - The canvas element.
- * @returns An object containing the color names, mean HSV values, and sub-images.
+ * @returns Per square: a provisional colour name, the measured Lab, and the
+ *   distance to each canonical colour.
  */
 export function recognizeColorsFromGrid(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
 ): RecognizedGrid {
   const gridColors: string[][] = [];
-  const gridHsvValues: HSV[][] = [];
-  const subImages: string[][] = [];
+  const gridLabs: Lab[][] = [];
   const gridDistances: number[][][] = [];
   const gridSize = 3;
 
@@ -70,33 +85,22 @@ export function recognizeColorsFromGrid(
 
   for (let row = 0; row < gridSize; row++) {
     const rowColors: string[] = [];
-    const rowHsvValues: HSV[] = [];
-    const rowSubImages: string[] = [];
+    const rowLabs: Lab[] = [];
     const rowDistances: number[][] = [];
     for (let col = 0; col < gridSize; col++) {
       const x = gridX + col * squareSize;
       const y = gridY + row * squareSize;
       const imageData = ctx.getImageData(x, y, squareSize, squareSize);
-      const { colorName, meanHsv, distances } = getDominantColor(imageData);
+      const { colorName, lab, distances } = getDominantColor(imageData);
       rowColors.push(colorName);
-      rowHsvValues.push(meanHsv);
+      rowLabs.push(lab);
       rowDistances.push(distances);
-
-      // Convert the imageData to a data URL for display
-      const subCanvas = document.createElement('canvas');
-      subCanvas.width = squareSize;
-      subCanvas.height = squareSize;
-      const subCtx = subCanvas.getContext('2d');
-      subCtx!.putImageData(imageData, 0, 0);
-      const dataURL = subCanvas.toDataURL();
-      rowSubImages.push(dataURL);
     }
     gridColors.push(rowColors);
-    gridHsvValues.push(rowHsvValues);
-    subImages.push(rowSubImages);
+    gridLabs.push(rowLabs);
     gridDistances.push(rowDistances);
   }
-  return { colors: gridColors, hsvValues: gridHsvValues, subImages, distances: gridDistances };
+  return { colors: gridColors, labs: gridLabs, distances: gridDistances };
 }
 
 /**
@@ -104,9 +108,10 @@ export function recognizeColorsFromGrid(
  * over the central region (rejecting grout, shadow and specular glare) and
  * classifying it against the canonical cube colors in the CIELAB a-b plane.
  * @param imageData - ImageData of the square region.
- * @returns The color name and a coherent representative HSV (for the debug pane).
+ * @returns The color name, the measured Lab, and the distance to each canonical
+ *   colour.
  */
-function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: HSV; distances: number[] } {
+function getDominantColor(imageData: ImageData): { colorName: string; lab: Lab; distances: number[] } {
   const { width, height, data } = imageData;
 
   // Analyze only the central ~60% of the square so the inter-sticker grout,
@@ -159,9 +164,8 @@ function getDominantColor(imageData: ImageData): { colorName: string; meanHsv: H
   const lab = rgbToLab(mr, mg, mb);
   const colorName = classifyLab(lab);
   const distances = labDistances(lab);
-  const meanHsv = rgbToHsv(mr, mg, mb);
 
-  return { colorName, meanHsv, distances };
+  return { colorName, lab, distances };
 }
 
 function median(values: number[]): number {

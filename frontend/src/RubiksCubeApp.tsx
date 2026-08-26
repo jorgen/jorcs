@@ -5,7 +5,9 @@ import IntroOverlay from './IntroOverlay';
 import useCubeStore, { createDefaultOverlayData, OverlayData, sideOrder } from './useCubeStore';
 import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './solver';
 import { blankCubeColors, colorsAfterMoves, invertMove, solvedCubeColors } from './cubeColors';
-import { type Defect, type Explanation, colorTally } from './cubeDiagnosis';
+import { COLOR_NAMES, type Defect, type Explanation, colorId, colorTally } from './cubeDiagnosis';
+import { CANONICAL_LABS } from './colorRecognition';
+import { type Lab, type Measurement, type Pin, relabelCube } from './cubeAssignment';
 
 const INTRO_SEEN_KEY = 'jorcs-intro-seen';
 
@@ -81,6 +83,47 @@ const RubiksCubeApp: React.FC = () => {
     Array.from({ length: 6 }, () => null),
   );
 
+  // Everything the scan knows so far, indexed by facelet (face * 9 + row * 3 + col).
+  // Held flat rather than per face because the labelling is decided across the
+  // whole cube at once: a square read on the first face can change its mind when
+  // the sixth is measured, and there is no point at which a face is finished.
+  const scanRef = useRef<{
+    labs: (Lab | null)[];
+    distances: (number[] | null)[];
+    provisional: (string | null)[];
+    pins: (number | null)[];
+  }>({
+    labs: Array(54).fill(null),
+    distances: Array(54).fill(null),
+    provisional: Array(54).fill(null),
+    pins: Array(54).fill(null),
+  });
+  // The grid the last relabelling wrote. Turning the cube permutes the colours but
+  // not the measurements, so if the live grid has drifted from this one every
+  // measurement now describes a square that has moved, and the lot is dropped.
+  const appliedRef = useRef<string[][][] | null>(null);
+  // The colour each square was given on its own, before the nine-of-each rule was
+  // applied. The tally counts these: an assignment can never report ten yellows,
+  // so counting its output would quietly retire the app's ability to notice a face
+  // scanned twice.
+  const [rawColors, setRawColors] = useState<string[][][] | null>(null);
+
+  const clearScan = () => {
+    scanRef.current = {
+      labs: Array(54).fill(null),
+      distances: Array(54).fill(null),
+      provisional: Array(54).fill(null),
+      pins: Array(54).fill(null),
+    };
+    scanReadingsRef.current = Array.from({ length: 6 }, () => null);
+    appliedRef.current = null;
+    pinWarningRef.current = false;
+    setRawColors(null);
+  };
+  // Whether the warning currently on screen is ours, so that resolving the pins
+  // takes it away again and nothing else does.
+  const pinWarningRef = useRef(false);
+
   const [status, setStatus] = useState('');
   // What is wrong with the cube, when something is. Kept apart from `status` so a
   // problem never looks like just another progress line.
@@ -150,6 +193,7 @@ const RubiksCubeApp: React.FC = () => {
     // Start building the solver now so the first Solve isn't a cold wait.
     void ensureSolver().catch(() => {});
     setStatus('Scrambling…');
+    clearScan();
     setCubeColors(solvedCubeColors());
     await new Promise((resolve) => setTimeout(resolve, 120));
     await showTheCube();
@@ -259,24 +303,108 @@ const RubiksCubeApp: React.FC = () => {
     setStep(clamped);
   };
 
+  // A cost the solver will never prefer, used to say "this square is not up for
+  // discussion" about a colour the user chose by hand.
+  const PINNED_ELSEWHERE = 60000;
+
+  const sameGrid = (a: string[][][], b: string[][][]) =>
+    a.every((face, f) => face.every((row, r) => row.every((color, c) => color === b[f][r][c])));
+
+  // Re-label every square measured so far, in one assignment over the whole cube.
+  // Deliberately not per face: committing a face and moving on makes the last face
+  // markedly worse than doing nothing, because the early mistakes have already
+  // spent the capacity and whatever is left gets forced onto the leftovers.
+  const applyRelabelling = (previous: string[][][]) => {
+    const scan = scanRef.current;
+    const measurements: Measurement[] = [];
+    const pins: Pin[] = [];
+    for (let facelet = 0; facelet < 54; facelet++) {
+      const lab = scan.labs[facelet];
+      if (lab) measurements.push({ facelet, lab });
+      const pin = scan.pins[facelet];
+      if (pin !== null) pins.push({ facelet, color: pin });
+    }
+    if (measurements.length === 0 && pins.length === 0) return;
+
+    const { colorOf, overPinned } = relabelCube(measurements, pins, CANONICAL_LABS);
+
+    const next = previous.map((face) => face.map((row) => [...row]));
+    const raw = previous.map((face) => face.map((row) => [...row]));
+    for (const [facelet, id] of colorOf) {
+      const f = Math.floor(facelet / 9);
+      const r = Math.floor((facelet % 9) / 3);
+      const c = facelet % 3;
+      next[f][r][c] = COLOR_NAMES[id];
+      raw[f][r][c] = scan.provisional[facelet] ?? COLOR_NAMES[id];
+    }
+
+    // Hand the solver the same measurements, now paired with the colours the
+    // assignment settled on. A pinned square reports zero cost for the colour the
+    // user chose and a prohibitive one for everything else, so the diagnosis can
+    // no longer nominate the square they just fixed as the likeliest misread.
+    scanReadingsRef.current = Array.from({ length: 6 }, (_, f) => {
+      const usable = Array.from({ length: 9 }, (_, k) => f * 9 + k).every(
+        (facelet) => scan.distances[facelet] !== null || scan.pins[facelet] !== null,
+      );
+      if (!usable) return null;
+      return {
+        colors: next[f].map((row) => [...row]),
+        distances: [0, 1, 2].map((r) =>
+          [0, 1, 2].map((c) => {
+            const facelet = f * 9 + r * 3 + c;
+            const pin = scan.pins[facelet];
+            if (pin !== null) {
+              return Array.from({ length: 6 }, (_, id) => (id === pin ? 0 : PINNED_ELSEWHERE));
+            }
+            return scan.distances[facelet] ?? [];
+          }),
+        ),
+      };
+    });
+
+    appliedRef.current = next.map((face) => face.map((row) => [...row]));
+    setCubeColors(next);
+    setRawColors(raw);
+    if (overPinned.length > 0) {
+      pinWarningRef.current = true;
+      setDiagnosis({
+        blame: 'scan',
+        headline: `You have set more than nine squares to ${COLOR_NAMES[overPinned[0]]}.`,
+        detail:
+          'Every square you pick by hand is kept exactly as you set it, so the counts cannot come out right until one of them changes. Click one of them again to choose a different colour.',
+      });
+    } else if (pinWarningRef.current) {
+      pinWarningRef.current = false;
+      setDiagnosis(null);
+    }
+  };
+
   const handleSetOverlayData = (data: OverlayData) => {
     setOverlayData(data);
-    setCubeColors((prevColors) => {
-      const newColors = [...prevColors];
-      newColors[currentSide] = data.colors;
-      return newColors;
-    });
-    // Keep the camera's own read of this face alongside the colours it produced.
-    // The colours are remembered too, so if the grid is later turned or scrambled
-    // these measurements can be recognised as stale instead of being trusted.
-    if (data.distances) {
-      scanReadingsRef.current[currentSide] = {
-        colors: data.colors.map((row) => [...row]),
-        distances: data.distances,
-      };
-    } else {
-      scanReadingsRef.current[currentSide] = null;
+    // If the cube has been turned since the last relabelling -- scrambled, solved,
+    // stepped through -- the stored measurements describe squares that have since
+    // moved. Start the scan over rather than pairing them with the wrong squares.
+    if (appliedRef.current && !sameGrid(appliedRef.current, cubeColors)) {
+      clearScan();
     }
+    const scan = scanRef.current;
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const facelet = currentSide * 9 + r * 3 + c;
+        const lab = data.labs?.[r]?.[c];
+        if (lab) {
+          scan.labs[facelet] = lab;
+          scan.distances[facelet] = data.distances?.[r]?.[c] ?? null;
+          scan.provisional[facelet] = data.colors[r][c];
+        }
+        if (data.pinned?.[r]?.[c]) {
+          const id = colorId(data.colors[r][c]);
+          scan.pins[facelet] = id >= 0 ? id : null;
+          scan.provisional[facelet] = data.colors[r][c];
+        }
+      }
+    }
+    applyRelabelling(cubeColors);
   };
 
   const handleOverlayDataCaptured = (data: OverlayData) => {
@@ -309,6 +437,7 @@ const RubiksCubeApp: React.FC = () => {
     setInitialColors([]);
     setStatus('');
     clearDiagnosis();
+    clearScan();
     setCubeColors(blankCubeColors());
     setNewSide(sideOrder[0]);
   };
@@ -331,7 +460,7 @@ const RubiksCubeApp: React.FC = () => {
 
   // A live count while scanning, so "ten yellows" shows up on the face that caused
   // it rather than at the end. A colour past nine is already impossible.
-  const tally = useMemo(() => colorTally(cubeColors), [cubeColors]);
+  const tally = useMemo(() => colorTally(rawColors ?? cubeColors), [rawColors, cubeColors]);
 
   const scannerBlock = (
     <div>

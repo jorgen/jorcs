@@ -2,36 +2,28 @@
 import { create } from 'zustand';
 import { BLANK_COLOR } from './cubeColors';
 
-type HSV = { h: number; s: number; v: number };
+import type { Lab } from './cubeAssignment';
 
+// The one definition of what a scanned face carries. It used to be declared three
+// times over -- here, in RubiksCubeRecognizer and implicitly in colorRecognition --
+// and the copy on the correction path was already missing a field, which survived
+// only because nothing had yet depended on it.
 type OverlayData = {
   colors: string[][];
-  hsvValues: HSV[][];
-  subImages: string[][];
+  // What the camera measured per square. Absent on a face set purely by hand.
+  labs?: Lab[][];
   // How far each square's reading sat from every canonical colour. Absent when the
   // squares were picked by hand rather than measured -- a human correction is not
   // something to second-guess.
   distances?: number[][][];
+  // Squares the user set by hand. These are honoured exactly and are never
+  // reconsidered when the cube is relabelled.
+  pinned?: boolean[][];
 };
 
 function createDefaultOverlayData(): OverlayData {
-  const defaultColor = BLANK_COLOR;
-  const defaultHSV = { h: 0, s: 0, v: 50 }; // Grey in HSV
-  const rows = 3;
-  const cols = 3;
-
-  const colors = Array.from({ length: rows }, () =>
-    Array(cols).fill(defaultColor),
-  );
-  const hsvValues = Array.from({ length: rows }, () =>
-    Array(cols).fill({ ...defaultHSV }),
-  );
-  const subImages = Array.from({ length: rows }, () => Array(cols).fill(''));
-
   return {
-    colors,
-    hsvValues,
-    subImages,
+    colors: Array.from({ length: 3 }, () => Array(3).fill(BLANK_COLOR)),
   };
 }
 
@@ -87,6 +79,6 @@ const useCubeStore = create<CubeState>((set) => ({
   setDetectionEnabled: (enabled) => set({ detectionEnabled: enabled }),
 }));
 
-export type { HSV, OverlayData };
+export type { OverlayData };
 export { createDefaultOverlayData, sideOrder};
 export default useCubeStore;
