@@ -387,6 +387,15 @@ export type ScanReading = { colors: string[][]; distances: number[][][] } | null
 // Build the 54x6 table of "how wrong would it be to call this square that colour",
 // for ranking possible re-readings.
 //
+// Two different numberings meet here and must not be confused. Everything on this
+// side speaks COLOUR IDS (COLOR_NAMES order: red, orange, white, yellow, green,
+// blue). The facelet array handed to the solver holds FACE INDICES instead --
+// solver.ts encodes each square as faceOfColor[colourId] -- and the C++ reads this
+// table with those, as costs[facelet * 6 + faceValue]. So the columns are written
+// in face-index order, not colour-id order. The two coincide only when the cube
+// happens to be scanned with red on the right, orange on the left and so on; for
+// any other orientation, writing colour ids here silently scrambles the ranking.
+//
 // A face's measurements are used only if that face still shows exactly the colours
 // it showed when measured. Turning the cube permutes the colour grid but not these
 // readings, so without that check a scramble or a played solution would leave every
@@ -396,6 +405,7 @@ export type ScanReading = { colors: string[][]; distances: number[][][] } | null
 export function buildRelabelCosts(
   cubeColors: string[][][],
   readings: readonly ScanReading[],
+  faceOfColor: readonly number[],
 ): Uint16Array | null {
   const costs = new Uint16Array(54 * 6);
   let anyUsable = false;
@@ -418,7 +428,9 @@ export function buildRelabelCosts(
         const d = reading.distances[r]?.[c];
         if (!d) continue;
         for (let id = 0; id < 6; id++) {
-          costs[(f * 9 + r * 3 + c) * 6 + id] = Math.min(65535, Math.round(d[id] ?? 0));
+          const column = faceOfColor[id];
+          if (column === undefined || column < 0) continue;
+          costs[(f * 9 + r * 3 + c) * 6 + column] = Math.min(65535, Math.round(d[id] ?? 0));
         }
       }
     }
@@ -442,6 +454,8 @@ export function faceletWords(facelet: number): string {
   return `${FACE_NAMES[face]} face, row ${row + 1}, column ${col + 1}`;
 }
 
+// `colorA`/`colorB` are colour ids by the time a fix reaches here -- solver.ts
+// translates them out of the solver's face-index numbering at the boundary.
 function fixWords(fix: StickerFix): string {
   const a = `the square at ${faceletWords(fix.faceletA)} is ${COLOR_NAMES[fix.colorA]}`;
   if (fix.faceletB < 0) return a;

@@ -105,7 +105,7 @@ export async function solveScannedColors(
 
   // The camera's own confidence, but only for faces that still look the way they
   // did when measured -- see buildRelabelCosts.
-  const costs = buildRelabelCosts(cubeColors, scanReadings);
+  const costs = buildRelabelCosts(cubeColors, scanReadings, faceOfColor);
   const analysis = module.analyzeFacelets(facelets, costs ?? new Uint16Array(0));
   if (analysis.status === 'solved') {
     if (checked.countFault) {
@@ -131,7 +131,20 @@ export async function solveScannedColors(
   }
 
   const anyway = analysis.repairedSolution;
-  const fixes = analysis.suggestions ?? [];
+  // The solver names a suggested colour by its facelet value, which is a face
+  // index rather than a colour id. Translate back here, at the boundary, so
+  // everything downstream keeps speaking colour ids -- otherwise the advice
+  // reads out the wrong colour name for any cube not scanned red-right,
+  // orange-left, white-up.
+  const colorOfFace = new Array<number>(6).fill(0);
+  faceOfColor.forEach((face, colorId) => {
+    if (face >= 0) colorOfFace[face] = colorId;
+  });
+  const fixes = (analysis.suggestions ?? []).map((fix) => ({
+    ...fix,
+    colorA: colorOfFace[fix.colorA] ?? fix.colorA,
+    colorB: fix.faceletB >= 0 ? (colorOfFace[fix.colorB] ?? fix.colorB) : fix.colorB,
+  }));
   // Point at the squares a fix would change, when we have one -- more useful than
   // the whole implicated piece.
   const fixHighlight = fixes.length > 0
