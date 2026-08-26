@@ -33,6 +33,10 @@ const REFERENCE_COLORS: { name: string; lab: Lab }[] = [
   { name: 'blue', lab: rgbToLab(0x00, 0x51, 0xba) },
 ];
 
+// Each reference's direction in the a*b* plane. Classification compares these
+// angles rather than straight-line distance -- see classifyLab.
+const REFERENCE_HUES = REFERENCE_COLORS.map((ref) => Math.atan2(ref.lab.b, ref.lab.a));
+
 // A sticker is white when it is bright and nearly colourless (low chroma),
 // which is illuminant-robust — unlike the old absolute saturation/value test
 // that stole glary yellow/orange stickers as "white".
@@ -165,26 +169,35 @@ function median(values: number[]): number {
   return sorted[sorted.length >> 1];
 }
 
-// Classifies a Lab color as the nearest canonical cube color, comparing in the
-// a*/b* chroma plane only so brightness differences (glare, shadow) don't tip
-// the decision. White is detected first, by low chroma at high lightness.
+// Classifies a Lab color as the canonical cube colour whose hue it shares. White
+// is decided first, by low chroma at high lightness.
+//
+// The comparison is by hue ANGLE in the a*/b* plane, not by straight-line
+// distance to the references. Distance looked brightness-invariant but is not:
+// dimming a sticker contracts its reading toward the achromatic origin while the
+// references stay pinned at full chroma, so the radial gap dominates the hue
+// difference and the reading falls to whichever reference sits nearest the
+// origin. That is green (chroma 55, the least saturated of the five), which is
+// why every shadowed or washed-out square used to come back green regardless of
+// its actual hue, and why a dimmed orange drifted to red. An angle has no radial
+// term, so contraction cannot move the answer at all.
 function classifyLab(lab: Lab): string {
   const chroma = Math.hypot(lab.a, lab.b);
   if (chroma < WHITE_MAX_CHROMA && lab.L > WHITE_MIN_LIGHTNESS) {
     return 'white';
   }
 
+  const hue = Math.atan2(lab.b, lab.a);
   let bestName = REFERENCE_COLORS[0].name;
-  let bestDistance = Infinity;
-  for (const ref of REFERENCE_COLORS) {
-    const da = lab.a - ref.lab.a;
-    const db = lab.b - ref.lab.b;
-    const distance = da * da + db * db;
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestName = ref.name;
+  let bestDelta = Infinity;
+  REFERENCE_HUES.forEach((referenceHue, index) => {
+    let delta = Math.abs(hue - referenceHue);
+    if (delta > Math.PI) delta = 2 * Math.PI - delta;
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestName = REFERENCE_COLORS[index].name;
     }
-  }
+  });
   return bestName;
 }
 
