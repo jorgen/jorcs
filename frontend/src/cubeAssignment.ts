@@ -77,11 +77,47 @@ const STICKERS_PER_COLOR = 9;
 // that holds up better on a faded cube and under exposure drift between faces.
 const LIGHTNESS_WEIGHT = 0.7;
 
-export function stickerCost(lab: Lab, reference: Lab): number {
+export function stickerCost(lab: Lab, reference: Lab, chromaScale = 1): number {
   const dL = lab.L - reference.L;
-  const da = lab.a - reference.a;
-  const db = lab.b - reference.b;
+  const da = lab.a * chromaScale - reference.a;
+  const db = lab.b * chromaScale - reference.b;
   return LIGHTNESS_WEIGHT * dL * dL + da * da + db * db;
+}
+
+// The references are the colours the viewer paints, which are as saturated as a
+// screen can make them. A camera is nowhere near that -- webcams in particular
+// render flat -- so a reading lands well inside the reference constellation rather
+// than near any one point of it.
+//
+// That matters because white sits at the origin, which makes it the nearest
+// reference to anything short of chroma. Distance alone therefore drags every
+// desaturated square toward white, and it takes the most saturated colours first:
+// yellow gives way at about half its reference chroma and orange just after, while
+// blue survives to a sixth. Yellow reading as white and orange as red is exactly
+// what that looks like from the outside.
+//
+// So the measurements are stretched back out to the scale the references live on,
+// by a single number taken from the cube itself. Five sixths of a cube is chromatic,
+// so the most chromatic five sixths of what was measured should reach about the mean
+// chroma of the five chromatic references. Only ever a stretch, never a squeeze, and
+// capped: on a face that happens to be all white there is nothing to measure from,
+// and the cap is what stops noise being inflated into colour.
+const MAX_CHROMA_STRETCH = 4;
+const CHROMATIC_COLORS = [0, 1, 3, 4, 5];
+
+export function measurementChromaScale(
+  measurements: readonly Measurement[],
+  references: readonly Lab[],
+): number {
+  if (measurements.length === 0) return 1;
+  const chromas = measurements.map((m) => Math.hypot(m.lab.a, m.lab.b)).sort((a, b) => b - a);
+  const take = Math.max(1, Math.round((chromas.length * 5) / 6));
+  const measured = chromas.slice(0, take).reduce((sum, c) => sum + c, 0) / take;
+  if (measured < 1e-6) return 1;
+  const wanted =
+    CHROMATIC_COLORS.reduce((sum, k) => sum + Math.hypot(references[k].a, references[k].b), 0) /
+    CHROMATIC_COLORS.length;
+  return Math.max(1, Math.min(MAX_CHROMA_STRETCH, wanted / measured));
 }
 
 const INFINITY_COST = 1e15;
@@ -231,11 +267,14 @@ export function relabelCube(
   }
 
   const free = measurements.filter((m) => !pinned.has(m.facelet));
+  // Taken once over everything in play, so every square is judged on the same scale
+  // -- including the centres, which are settled in their own pass below.
+  const scale = measurementChromaScale(measurements, references);
   const buildCosts = (items: readonly Measurement[]) => {
     const costs = new Float64Array(items.length * COLOR_COUNT);
     items.forEach((item, i) => {
       for (let k = 0; k < COLOR_COUNT; k++) {
-        costs[i * COLOR_COUNT + k] = stickerCost(item.lab, references[k]);
+        costs[i * COLOR_COUNT + k] = stickerCost(item.lab, references[k], scale);
       }
     });
     return costs;

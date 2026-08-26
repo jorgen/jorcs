@@ -5,10 +5,16 @@
 // about what it does and does not claim. It models: per-cube sticker colour
 // variation (brand), sticker fade as a radial contraction toward grey, a diagonal
 // illuminant, exposure, per-square shading from the face's tilt, per-square sensor
-// noise, and clipping at 8 bits. It does not model lens flare, mixed lighting
-// across one face, a camera's non-diagonal colour matrix (except where a benchmark
-// adds one explicitly), or motion blur. Results rank the options reliably; the
-// absolute percentages are only as good as this model.
+// noise, clipping at 8 bits, and how flat the camera renders (see `saturation`).
+// It does not model lens flare, mixed lighting across one face, a camera's
+// non-diagonal colour matrix (except where a benchmark adds one explicitly), or
+// motion blur. Results rank the options reliably; the absolute percentages are only
+// as good as this model.
+//
+// `saturation` was added after the model was caught being wrong. It assumed a
+// camera reports roughly the sticker's own colour; a real webcam renders far
+// flatter than that, and every benchmark here missed a bug that a real scan found
+// in one shot. Anything below about 0.5 is where the interesting failures live.
 
 // ---------- colour ----------
 const M = [
@@ -163,8 +169,16 @@ export function makeTruth(rng) {
   return truth;
 }
 
-// What the camera reports for one sticker.
-export function sample(rng, brand, colorId, { gains, exposure, shadeSpread = 0.32, noise = 0.04, crosstalk = 0 }) {
+// What the camera reports for one sticker. `saturation` scales the reported chroma
+// and `flatten` pulls lightness toward mid grey -- together, how flat this camera
+// renders. Applied after the sensor model because that is where it comes from: the
+// pipeline that turns sensor counts into an image, not the light.
+export function sample(
+  rng,
+  brand,
+  colorId,
+  { gains, exposure, shadeSpread = 0.32, noise = 0.04, crosstalk = 0, saturation = 1, flatten = 0 },
+) {
   const shade = 1 - shadeSpread / 2 + shadeSpread * rng();
   let v = [0, 1, 2].map(
     (k) => srgbToLinear(brand[colorId][k]) * gains[k] * exposure * shade * (1 + noise * (rng() - 0.5)),
@@ -172,9 +186,13 @@ export function sample(rng, brand, colorId, { gains, exposure, shadeSpread = 0.3
   if (crosstalk > 0) {
     v = [0, 1, 2].map((k) => v[k] * (1 - 2 * crosstalk) + crosstalk * (v[(k + 1) % 3] + v[(k + 2) % 3]));
   }
-  return srgbToLab(
-    ...v.map((c) => Math.max(0, Math.min(255, linearToSrgb(Math.min(1, c))))),
-  );
+  const lab = srgbToLab(...v.map((c) => Math.max(0, Math.min(255, linearToSrgb(Math.min(1, c))))));
+  if (saturation === 1 && flatten === 0) return lab;
+  return {
+    L: lab.L * (1 - flatten) + 70 * flatten,
+    a: lab.a * saturation,
+    b: lab.b * saturation,
+  };
 }
 
 // The order the app walks the faces in (useCubeStore.sideOrder).
@@ -186,7 +204,7 @@ export const SIDE_ORDER = [0, 5, 1, 4, 2, 3];
  * Returns the truth and the measurement per facelet.
  */
 export function makeScan(seed, world) {
-  const { gains = [1, 1, 1], exposure = 1, fade = 0, drift = 0, base = TYPICAL, crosstalk = 0, shadeSpread = 0.32, noise = 0.04 } = world;
+  const { gains = [1, 1, 1], exposure = 1, fade = 0, drift = 0, base = TYPICAL, crosstalk = 0, shadeSpread = 0.32, noise = 0.04, saturation = 1, flatten = 0 } = world;
   const rng = rngFor(seed);
   const brand = makeBrand(rng, { fade, base });
   const truth = makeTruth(rng);
@@ -202,6 +220,8 @@ export function makeScan(seed, world) {
         shadeSpread,
         noise,
         crosstalk,
+        saturation,
+        flatten,
       });
     }
   }

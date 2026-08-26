@@ -57,11 +57,39 @@ calibration makes it slightly worse rather than better, and on a partial scan it
 worse again — nine squares are not a fair sample of six colours, so the illuminant
 estimate is biased early and the EM step fits noise and then reinforces it.
 
+## What a real scan corrected
+
+The model assumed a camera reports roughly the sticker's own colour. A real webcam
+renders far flatter than that, and every benchmark here missed a bug that one real
+scan found immediately: yellow squares labelled white and an orange labelled red.
+
+The mechanism is that the references are the colours the *viewer* paints, as
+saturated as a screen can make them, while white sits at the achromatic origin. A
+washed-out reading lands inside that constellation, so plain distance drags it
+toward white -- and it takes the most saturated colours first: yellow gives way at
+about half its reference chroma, orange just after, blue not until a sixth.
+
+`measurementChromaScale` now stretches the measurements back out to the scale the
+references live on, using one number taken from the cube itself. On the first face,
+where nine squares against a cap of nine is no constraint at all, that takes errors
+from 6.6 of 9 to 0.5 at the flattest setting, and roughly halves them everywhere
+else. `saturation` and `flatten` are now part of `harness.mjs`, and
+`assignment.bench.mjs` asserts on them, so this cannot go unnoticed again.
+
+It costs something in the heavy-drift world (final errors 2.6 -> 3.4): one global
+chroma scale fits worse when every face is exposed differently. That trade is worth
+taking, and per-face exposure swings got smaller when the camera stopped being
+restarted between captures.
+
 ## The world model is the weak link
 
 `harness.mjs` models per-cube sticker variation, fade as a contraction toward grey,
 a diagonal illuminant, exposure, per-square shading and sensor noise, and 8-bit
 clipping. It does not model lens flare, mixed lighting across one face, a camera's
 non-diagonal colour matrix (except where a benchmark adds one deliberately), or
-motion blur. **No real cube has been measured against any of this.** The numbers
-rank the options reliably; treat the absolute percentages as indicative only.
+motion blur. The numbers rank the options reliably; treat the absolute percentages
+as indicative only.
+
+**Only one real scan has ever been compared against this**, and it found a bug none
+of the benchmarks did — see above. When a real scan and this harness disagree, the
+harness is wrong.

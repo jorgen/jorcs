@@ -136,6 +136,41 @@ console.log('\n  The per-face column is what the user sees at the moment they lo
 console.log('  face. It falls as more of the cube is measured, and earlier faces correct');
 console.log('  themselves -- which is why the final answer is better than any face was.');
 
+console.log('\n=== a camera that renders flat, which is the case a real scan found ===\n');
+console.log('  A webcam reports far less chroma than the viewer paints. Whatever is');
+console.log('  measured then sits inside the reference constellation, and white -- at');
+console.log('  the origin -- is the nearest reference to anything short of chroma.');
+console.log('  The first face is where this bites, because nine squares against a cap');
+console.log('  of nine is no constraint at all: it is nearest-reference and nothing else.\n');
+console.log('  saturation   face 1 (of 9)   whole cube (of 54)');
+for (const saturation of [1.0, 0.8, 0.65, 0.5, 0.4, 0.3]) {
+  let firstFace = 0;
+  let whole = 0;
+  const runs = 200;
+  for (let s = 0; s < runs; s++) {
+    const world = { gains: [1, 0.9, 0.78], exposure: 0.8, saturation, flatten: (1 - saturation) * 0.45 };
+    const { truth, measurements } = makeScan(s * 7919 + Math.round(saturation * 100), world);
+    const face = SIDE_ORDER[0];
+    const faceFacelets = Array.from({ length: 9 }, (_, k) => face * 9 + k);
+    firstFace += countErrors(
+      relabelCube(faceFacelets.map((f) => measurements[f]), [], CANONICAL_LABS).colorOf,
+      truth,
+      faceFacelets,
+    );
+    whole += countErrors(relabelCube(measurements, [], CANONICAL_LABS).colorOf, truth, ALL_FACELETS);
+  }
+  console.log(
+    `  ${saturation.toFixed(2).padStart(8)}   ${(firstFace / runs).toFixed(2).padStart(13)}   ${(whole / runs).toFixed(2).padStart(18)}`,
+  );
+  if (saturation <= 0.5) {
+    check(
+      `a flat camera (saturation ${saturation}) still reads the first face`,
+      firstFace / runs < 1.0,
+      `${(firstFace / runs).toFixed(2)} wrong of 9`,
+    );
+  }
+}
+
 console.log('\n=== the grid the app ends up with is legal ===\n');
 {
   let badTally = 0;
