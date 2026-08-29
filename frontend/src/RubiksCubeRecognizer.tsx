@@ -61,7 +61,14 @@ const RubiksCubeRecognizer: React.FC<RubiksCubeRecognizerProps> = ({
 
   const [cubeDetected, setCubeDetected] = useState(false);
   const cubeDetectionCounter = useRef(0);
-  const cubeDetectionThreshold = 1; // Number of consecutive frames the cube must be detected
+  // Consecutive matching frames before a capture fires. At one, a transient is enough
+  // -- a hand crossing the region, a pan across a door frame, or the face still in
+  // front of the lens when Next Side re-arms the gate -- and a face captured from one
+  // of those costs about 12 of the 54 squares, because its nine readings evict correct
+  // ones on faces already scanned. Three frames is a tenth of a second: invisible on a
+  // cube being held up to the camera, and fatal to anything moving. "Capture now" is
+  // still there for a cube the gate will not take.
+  const cubeDetectionThreshold = 3;
   const [opencvReady, setOpencvReady] = useState(false);
 
   // State variables for grid squares and color palette
