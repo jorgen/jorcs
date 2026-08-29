@@ -4,7 +4,8 @@
 // search rather than trusted. The rest measures what the labelling actually buys.
 import { build } from './build.mjs';
 const out = build();
-const { solveAssignment, assignWithCapacity, relabelCube } = await import(`${out}/cubeAssignment.js`);
+const { solveAssignment, assignWithCapacity, relabelCube, measurementLightnessOffset } =
+  await import(`${out}/cubeAssignment.js`);
 const { CANONICAL_LABS } = await import(`${out}/colorRecognition.js`);
 const { colorTally, preflight, colorId, COLOR_NAMES } = await import(`${out}/cubeDiagnosis.js`);
 const { blankCubeColors } = await import(`${out}/cubeColors.js`);
@@ -169,6 +170,57 @@ for (const saturation of [1.0, 0.8, 0.65, 0.5, 0.4, 0.3]) {
       `${(firstFace / runs).toFixed(2)} wrong of 9`,
     );
   }
+}
+
+console.log('\n=== how bright the room is no longer decides a square ===\n');
+console.log('  A camera in a dim room reports every square darker than the references,');
+console.log('  and stickerCost charges that whole gap. On a finished cube it cancels --');
+console.log('  all 54 readings move together and the cheapest permutation does not care');
+console.log('  -- but on a partial scan the nine-of-each rule is a bound rather than an');
+console.log('  equality, so nothing absorbs it and every square is dragged toward the');
+console.log('  darkest reference. Measuring the offset and subtracting it makes the');
+console.log('  answer invariant to a global lightness shift EVERYWHERE, not just at the');
+console.log('  end. That invariance is the whole of the change, so it is what is tested:');
+console.log('  re-run each scan two stops darker and the labelling must not budge.\n');
+{
+  const runs = 200;
+  const SHIFT = 25;
+  console.log('  world                    offset measured   squares moved by a 25 L* shift');
+  for (const [name, world] of Object.entries(WORLDS)) {
+    let moved = 0;
+    let movedPartial = 0;
+    let offsetSum = 0;
+    for (let s = 0; s < runs; s++) {
+      const { measurements } = makeScan(s * 7919 + name.length, world);
+      const darker = measurements.map((m) => ({
+        facelet: m.facelet,
+        lab: { L: m.lab.L - SHIFT, a: m.lab.a, b: m.lab.b },
+      }));
+      offsetSum += measurementLightnessOffset(measurements, CANONICAL_LABS);
+
+      const a = relabelCube(measurements, [], CANONICAL_LABS).colorOf;
+      const b = relabelCube(darker, [], CANONICAL_LABS).colorOf;
+      for (const facelet of ALL_FACELETS) if (a.get(facelet) !== b.get(facelet)) moved++;
+
+      // Two faces in, where the capacity constraint is still slack -- this is the case
+      // the offset exists for, and the one that used to move.
+      const seen = Array.from({ length: 18 }, (_, k) => SIDE_ORDER[Math.floor(k / 9)] * 9 + (k % 9));
+      const pa = relabelCube(seen.map((f) => measurements[f]), [], CANONICAL_LABS).colorOf;
+      const pb = relabelCube(seen.map((f) => darker[f]), [], CANONICAL_LABS).colorOf;
+      for (const facelet of seen) if (pa.get(facelet) !== pb.get(facelet)) movedPartial++;
+    }
+    console.log(
+      '  ' +
+        name.padEnd(22) +
+        (offsetSum / runs).toFixed(1).padStart(15) +
+        ('  full cube ' + moved + ', two faces in ' + movedPartial).padStart(33),
+    );
+    check('a dimmer room does not move a finished cube in ' + name, moved === 0, moved + ' squares');
+    check('a dimmer room does not move a partial scan in ' + name, movedPartial === 0, movedPartial + ' squares');
+  }
+  console.log('\n  The offset column is what the app was silently charging every square');
+  console.log('  before this: a real cube on a webcam reads about 35 L* below the');
+  console.log('  references, and nine squares against a cap of nine could not absorb it.');
 }
 
 console.log('\n=== the grid the app ends up with is legal ===\n');

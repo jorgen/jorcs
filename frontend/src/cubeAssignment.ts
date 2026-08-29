@@ -77,8 +77,13 @@ const STICKERS_PER_COLOR = 9;
 // that holds up better on a faded cube and under exposure drift between faces.
 const LIGHTNESS_WEIGHT = 0.7;
 
-export function stickerCost(lab: Lab, reference: Lab, chromaScale = 1): number {
-  const dL = lab.L - reference.L;
+export function stickerCost(
+  lab: Lab,
+  reference: Lab,
+  chromaScale = 1,
+  lightnessOffset = 0,
+): number {
+  const dL = lab.L - lightnessOffset - reference.L;
   const da = lab.a * chromaScale - reference.a;
   const db = lab.b * chromaScale - reference.b;
   return LIGHTNESS_WEIGHT * dL * dL + da * da + db * db;
@@ -99,10 +104,18 @@ export function stickerCost(lab: Lab, reference: Lab, chromaScale = 1): number {
 // So the measurements are stretched back out to the scale the references live on,
 // by a single number taken from the cube itself. Five sixths of a cube is chromatic,
 // so the most chromatic five sixths of what was measured should reach about the mean
-// chroma of the five chromatic references. Only ever a stretch, never a squeeze, and
-// capped: on a face that happens to be all white there is nothing to measure from,
-// and the cap is what stops noise being inflated into colour.
+// chroma of the five chromatic references. Only ever a stretch, never a squeeze.
+//
+// The cap alone does not stop noise being inflated into colour, which is what it was
+// written to do. On a first face that happens to be all white the ratio runs to about
+// 27, so the cap still applies its full 4x -- to nine readings that are pure sensor
+// noise. A floor on the evidence is the honest form of the same intent: below about
+// chroma 12 there is nothing to measure from, so fade the stretch out rather than
+// clamping it. An all-white face measures 5-12 there, a mixed face 20-45 and a real
+// cube 42, so the floor sits in the gap. It costs on a camera flatter than about half
+// the chroma this one renders; scanning the white side first is the commoner case.
 const MAX_CHROMA_STRETCH = 4;
+const CHROMA_NOISE_FLOOR = 12;
 const CHROMATIC_COLORS = [0, 1, 3, 4, 5];
 
 export function measurementChromaScale(
@@ -117,7 +130,35 @@ export function measurementChromaScale(
   const wanted =
     CHROMATIC_COLORS.reduce((sum, k) => sum + Math.hypot(references[k].a, references[k].b), 0) /
     CHROMATIC_COLORS.length;
-  return Math.max(1, Math.min(MAX_CHROMA_STRETCH, wanted / measured));
+  const stretch = Math.max(1, Math.min(MAX_CHROMA_STRETCH, wanted / measured));
+  return 1 + (stretch - 1) * Math.min(1, measured / CHROMA_NOISE_FLOOR);
+}
+
+// The same argument as the chroma stretch, on the other axis. A camera in a room
+// reports L* far below the references -- the cube in the scan that prompted this reads
+// a mean of 29.6 against references averaging 65 -- and stickerCost charges that whole
+// gap to every square. On a full cube it costs nothing, because all 54 readings move
+// together and the cheapest permutation does not change. On a partial scan, where the
+// nine-of-each rule is a loose bound rather than an equality, there is nothing to
+// absorb it and every square is dragged toward whichever reference is darkest.
+//
+// Unlike the stretch this is a translation, and a translation only ever adds one
+// constant per square and one per colour to the cost. A tight assignment cancels both,
+// so this cannot move a completed cube's answer -- 0 of 54 squares over 5000 simulated
+// full scans -- and acts only where the constraint is loose. There it roughly halves
+// how often the face in front of the camera shows a square that is wrong.
+//
+// Neutral wherever capacity is tight, which is every legal input. It is not tight when
+// a colour has been pinned more than nine times, because the clamp in relabelCube
+// leaves a slack slot behind; that state is already reported as overPinned.
+export function measurementLightnessOffset(
+  measurements: readonly Measurement[],
+  references: readonly Lab[],
+): number {
+  if (measurements.length === 0) return 0;
+  const measured = measurements.reduce((sum, m) => sum + m.lab.L, 0) / measurements.length;
+  const wanted = references.reduce((sum, r) => sum + r.L, 0) / references.length;
+  return measured - wanted;
 }
 
 const INFINITY_COST = 1e15;
@@ -267,14 +308,21 @@ export function relabelCube(
   }
 
   const free = measurements.filter((m) => !pinned.has(m.facelet));
-  // Taken once over everything in play, so every square is judged on the same scale
-  // -- including the centres, which are settled in their own pass below.
+  // Both taken once over everything in play, so every square is judged on the same
+  // scale and against the same lightness -- including the centres, which are settled
+  // in their own pass below.
   const scale = measurementChromaScale(measurements, references);
+  const lightnessOffset = measurementLightnessOffset(measurements, references);
   const buildCosts = (items: readonly Measurement[]) => {
     const costs = new Float64Array(items.length * COLOR_COUNT);
     items.forEach((item, i) => {
       for (let k = 0; k < COLOR_COUNT; k++) {
-        costs[i * COLOR_COUNT + k] = stickerCost(item.lab, references[k], scale);
+        costs[i * COLOR_COUNT + k] = stickerCost(
+          item.lab,
+          references[k],
+          scale,
+          lightnessOffset,
+        );
       }
     });
     return costs;

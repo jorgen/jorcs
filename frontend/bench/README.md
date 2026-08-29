@@ -81,6 +81,55 @@ chroma scale fits worse when every face is exposed differently. That trade is wo
 taking, and per-face exposure swings got smaller when the camera stopped being
 restarted between captures.
 
+## What the room's brightness was costing
+
+The same argument as the chroma stretch, on the lightness axis, and the bigger of the
+two. A webcam in a room reports every square far darker than the references — the cube
+in the scan above measures a mean L* of 29.6 against references averaging 65 — and
+`stickerCost` charged that whole gap to every square.
+
+On a finished cube that costs nothing: all 54 readings move together and the cheapest
+permutation does not change. On a partial scan the nine-of-each rule is an upper bound
+rather than an equality, so nothing absorbs it and every square is dragged toward
+whichever reference is darkest. Which is why the face in front of the camera showed a
+wrong square about half the time while the finished cube came out at 0.1 of 54: the
+scan was never as bad as it looked, but the thing on screen was.
+
+`measurementLightnessOffset` subtracts it. Being a translation it only ever adds one
+constant per square and one per colour to the cost, and a tight assignment cancels
+both, so it cannot move a finished cube. Wrong squares on each face as it is scanned:
+
+    neutral, bright   [0.34 0.37 0.28 0.22 0.09] -> [0.26 0.27 0.18 0.19 0.08]
+    warm, dim         [0.88 0.82 0.60 0.50 0.28] -> [0.43 0.28 0.26 0.15 0.16]
+    warm, very dim    [2.34 2.04 1.76 1.47 0.82] -> [0.80 0.70 0.54 0.46 0.29]
+    heavy drift       [2.20 2.17 2.16 1.66 1.44] -> [1.64 1.73 1.70 1.51 1.42]
+
+with final errors and clean-scan rates unchanged to the digit. The benchmark asserts
+the invariance rather than the numbers: re-run any scan 25 L* darker and not one square
+may move, finished cube or partial. Before this, a partial scan moved 159–708 squares
+per 200 under that shift, and a finished cube already moved none.
+
+The chroma stretch's cap needed the same treatment. It was documented as the thing that
+stops noise being inflated into colour on an all-white face, and it is not — the ratio
+there runs to about 27, so the cap still applies its full 4x to nine readings of sensor
+noise. `CHROMA_NOISE_FLOOR` fades the stretch out when there is no chroma to measure
+from instead. Scanning the white side first is a common opening; across the six
+single-colour first faces this takes 0.59 wrong of 9 to 0.23, orange alone 3.27 to 0.69.
+
+## Two corrections to the section above
+
+The chroma stretch's heavy-drift cost is **white balance, not exposure**. Splitting the
+harness's `drift` into its two components: ±45% pure exposure drift leaves the stretch
+ahead (0.18 against 0.41 final), while pure white-balance wander accounts for the whole
+regression. The sentence above blaming "every face exposed differently" has it backwards.
+
+And that world does not resemble the camera it was written for. Measured off two frames
+of the real scan above — the same wall patches, one frame with a cube and a hand in it,
+the other with a face — exposure moves about 7% and white balance at most 1.1%, against
+the ±45% independent per-channel gain the world assumes. Per-face chroma estimation was
+built and measured as the fix and rejected: it recovers under half the gap even in that
+world, and loses on every degenerate face and in a world calibrated to the real camera.
+
 ## The world model is the weak link
 
 `harness.mjs` models per-cube sticker variation, fade as a contraction toward grey,
