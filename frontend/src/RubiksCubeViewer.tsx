@@ -20,12 +20,24 @@ type RubiksCubeViewerProps = {
 // What a faded, not-implicated sticker is mixed towards.
 const DIMMED = new THREE.Color('#d7d7d7');
 
-// Interaction modes
+// Interaction modes.
+//
+// Recolouring used to be one of these, which meant arming a mode before every
+// single sticker -- and the mode dropped back to ORBIT after each pick, so it was
+// once per sticker, not once per repair. The camera overlay never asked for that:
+// there a square is clicked and the picker opens. This does the same. A click is
+// now enough on its own, so what is left is the two things a click cannot mean at
+// the same time as choosing a square.
 const InteractionModes = {
   ORBIT: 'ORBIT',
-  COLOR_PICKER: 'COLOR_PICKER',
   SIDE_SELECTION: 'SIDE_SELECTION',
 } as const;
+
+// A click opens the picker and a drag turns the cube, and both are the same press
+// with the same release. They are told apart by how far the pointer travelled: a
+// release further than this from where it went down was someone turning the cube
+// and must not be read as choosing the sticker it happened to land on.
+const DRAG_SLOP_PIXELS = 6;
 
 type InteractionMode = typeof InteractionModes[keyof typeof InteractionModes];
 
@@ -65,6 +77,8 @@ const RubiksCubeViewer = forwardRef<{
     InteractionModes.ORBIT,
   );
   const [isMirrored, setIsMirrored] = useState(false);
+  // Where the pointer went down, so the release can be told from a drag.
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
 
 
   console.log('Viewer with current side: ', currentSide);
@@ -92,11 +106,7 @@ const RubiksCubeViewer = forwardRef<{
   const modeButtons = {
     ORBIT: {
       icon: '🤚',
-      description: 'Turn the cube: drag to look at it from anywhere',
-    },
-    COLOR_PICKER: {
-      icon: '🎨',
-      description: 'Fix a colour: click a sticker to pick the right one',
+      description: 'Turn the cube: drag to look at it, or click a sticker to recolour it',
     },
     SIDE_SELECTION: {
       icon: '🧭',
@@ -408,8 +418,13 @@ const RubiksCubeViewer = forwardRef<{
 
   const handleClick = useCallback(
     (event: MouseEvent) => {
-      if (interactionMode === InteractionModes.ORBIT) {
-        // Do nothing; orbit controls are active
+      const pressedAt = pointerDownRef.current;
+      pointerDownRef.current = null;
+      if (
+        pressedAt &&
+        Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > DRAG_SLOP_PIXELS
+      ) {
+        // A turn of the cube that happened to finish over a sticker.
         return;
       }
 
@@ -449,17 +464,13 @@ const RubiksCubeViewer = forwardRef<{
 
         const { row, col } = getFaceRowCol(faceIndex, x, y, z);
 
-        if (interactionMode === InteractionModes.COLOR_PICKER) {
-          setSelectedSquare({
-            faceIndex,
-            row,
-            col,
-          });
-          setShowColorPicker(true);
-        } else if (interactionMode === InteractionModes.SIDE_SELECTION) {
+        if (interactionMode === InteractionModes.SIDE_SELECTION) {
           setCurrentSide(faceIndex);
           animateCameraToSide(faceIndex);
           setInteractionMode(InteractionModes.ORBIT);
+        } else {
+          setSelectedSquare({ faceIndex, row, col });
+          setShowColorPicker(true);
         }
       }
     },
@@ -472,10 +483,15 @@ const RubiksCubeViewer = forwardRef<{
     if (!renderer) return;
 
     const canvas = renderer.domElement;
+    const handlePointerDown = (event: PointerEvent) => {
+      pointerDownRef.current = { x: event.clientX, y: event.clientY };
+    };
+    canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('click', handleClick);
 
     // Cleanup
     return () => {
+      canvas.removeEventListener('pointerdown', handlePointerDown);
       canvas.removeEventListener('click', handleClick);
     };
   }, [handleClick]);
@@ -615,8 +631,8 @@ const RubiksCubeViewer = forwardRef<{
       controls.enablePan = false;//interactionMode === InteractionModes.ORBIT;
     }
 
-    // Close color picker if mode changes
-    if (interactionMode !== InteractionModes.COLOR_PICKER) {
+    // Going off to face a side abandons whatever square was being recoloured.
+    if (interactionMode !== InteractionModes.ORBIT) {
       setShowColorPicker(false);
       setSelectedSquare(null);
     }
@@ -645,7 +661,6 @@ const RubiksCubeViewer = forwardRef<{
       setCubeColors(updatedColors);
       setSelectedSquare(null);
       setShowColorPicker(false);
-      setInteractionMode(InteractionModes.ORBIT);
     }
   };
 
@@ -777,7 +792,7 @@ const RubiksCubeViewer = forwardRef<{
       }} />
 
       {/* Color Picker */}
-      {showColorPicker && interactionMode === InteractionModes.COLOR_PICKER && (
+      {showColorPicker && (
         <ColorPicker onSelectColor={handleColorChange} onClose={handleColorPickerClose} />
       )}
     </div>
