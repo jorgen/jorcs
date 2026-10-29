@@ -49,6 +49,9 @@ the Free Software Foundation, either version 3 of the License, or
 // same colour), while an obviously weak one -- a deep shadow, say -- costs about
 // 0.4, because it does not compete. Letting a doubtful square abstain rather than
 // vote takes a bad reading from 2.3 squares to 0.5; see bench/measurement.bench.mjs.
+//
+// The one exception is relabelAgainstOwnColours, at the bottom: re-fitting the
+// references to a COMPLETE cube, nine squares a colour, which none of the above did.
 
 export type Lab = { L: number; a: number; b: number };
 
@@ -268,7 +271,7 @@ export type Relabelling = {
   overPinned: number[];
 };
 
-const isCentre = (facelet: number) => facelet % 9 === 4;
+export const isCentre = (facelet: number) => facelet % 9 === 4;
 
 /**
  * Labels every measured or pinned square in one go.
@@ -347,4 +350,83 @@ export function relabelCube(
   }
 
   return { colorOf, overPinned };
+}
+
+// The references above are what the viewer paints, and a real webcam is nowhere near
+// them: on the first real scan compared against this, green came back a dark teal
+// close to black and red a maroon. Once the whole cube is in, the cube itself is a
+// better reference: nine squares of each colour, as this camera renders them, under
+// this light. So the finished cube is labelled as above, each colour's reference is
+// re-taken as the median of its nine squares, and everything but the centres is
+// labelled once more against those.
+//
+// Labelling against the six measured centres alone was the first version of this,
+// and it is fragile: one sticker is one reading, and a logo on the white centre --
+// which most cubes have -- reads as dark grey. On a flat camera that took 7.6 and
+// then 25 squares of 54 wrong, against 0.02 for the median of nine, which no logo
+// moves. Seeding from the centres and keeping whichever labelling clustered tighter
+// was no better: it picked the logo's labelling. See bench/assignment.bench.mjs.
+//
+// Only on a complete cube. Nine squares are not a fair sample of six colours, and
+// re-fitting references to a partial scan fits its noise and then reinforces it --
+// which is what sank the calibration described at the top of this file.
+
+export type CubeRelabelling = Relabelling & {
+  // The references the cube was finally labelled against, in colour-id order.
+  references: Lab[];
+};
+
+const medianOf = (values: number[]) => {
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[sorted.length >> 1];
+};
+
+/**
+ * Labels a complete cube against its own colours.
+ *
+ * @returns null until every square is measured or pinned; relabelCube is then the
+ *   only opinion there is.
+ */
+export function relabelAgainstOwnColours(
+  measurements: readonly Measurement[],
+  pins: readonly Pin[],
+  references: readonly Lab[],
+): CubeRelabelling | null {
+  const covered = new Set([...measurements.map((m) => m.facelet), ...pins.map((p) => p.facelet)]);
+  if (covered.size < COLOR_COUNT * STICKERS_PER_COLOR) return null;
+
+  const first = relabelCube(measurements, pins, references);
+  const colorOf = new Map(first.colorOf);
+
+  const own = Array.from({ length: COLOR_COUNT }, (_, color) => {
+    const members = measurements.filter((m) => colorOf.get(m.facelet) === color).map((m) => m.lab);
+    if (members.length === 0) return null;
+    return {
+      L: medianOf(members.map((lab) => lab.L)),
+      a: medianOf(members.map((lab) => lab.a)),
+      b: medianOf(members.map((lab) => lab.b)),
+    };
+  });
+  if (own.some((lab) => !lab)) return { ...first, references: [...references] };
+  const ownReferences = own as Lab[];
+
+  // Centres and pins stay as they are; they spend capacity before the rest is placed.
+  const pinned = new Set(pins.map((p) => p.facelet));
+  const capacity = new Array<number>(COLOR_COUNT).fill(STICKERS_PER_COLOR);
+  for (const [facelet, color] of colorOf) {
+    if (isCentre(facelet) || pinned.has(facelet)) capacity[color]--;
+  }
+  for (let color = 0; color < COLOR_COUNT; color++) capacity[color] = Math.max(0, capacity[color]);
+
+  const rest = measurements.filter((m) => !isCentre(m.facelet) && !pinned.has(m.facelet));
+  const costs = new Float64Array(rest.length * COLOR_COUNT);
+  rest.forEach((square, i) => {
+    for (let k = 0; k < COLOR_COUNT; k++) {
+      costs[i * COLOR_COUNT + k] = stickerCost(square.lab, ownReferences[k]);
+    }
+  });
+  const colors = assignWithCapacity(costs, rest.length, capacity);
+  if (colors) rest.forEach((square, i) => colorOf.set(square.facelet, colors[i]));
+
+  return { colorOf, overPinned: first.overPinned, references: ownReferences };
 }

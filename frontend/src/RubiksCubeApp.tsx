@@ -7,7 +7,16 @@ import { ensureSolver, playMoves, randomScramble, solveScannedColors } from './s
 import { blankCubeColors, colorsAfterMoves, invertMove, solvedCubeColors } from './cubeColors';
 import { COLOR_NAMES, type Defect, type Explanation, colorId, colorTally } from './cubeDiagnosis';
 import { CANONICAL_LABS, classifyLab } from './colorRecognition';
-import { type Lab, type Measurement, type Pin, relabelCube } from './cubeAssignment';
+import {
+  type Lab,
+  type Measurement,
+  type Pin,
+  isCentre,
+  relabelAgainstOwnColours,
+  relabelCube,
+  stickerCost,
+} from './cubeAssignment';
+import { BLANK_COLOR } from './cubeColors';
 
 const INTRO_SEEN_KEY = 'jorcs-intro-seen';
 
@@ -327,10 +336,37 @@ const RubiksCubeApp: React.FC = () => {
     }
     if (measurements.length === 0 && pins.length === 0) return null;
 
-    const { colorOf, overPinned } = relabelCube(measurements, pins, CANONICAL_LABS);
+    // Until every face is in, only the centres are labelled. The other squares are
+    // recorded, but on a partial scan nine-of-each is barely a constraint, so their
+    // labels were close to nearest-painted-colour -- which is where green turned white
+    // on screen. Once the cube is complete, it is labelled against its own colours.
+    const calibrated = relabelAgainstOwnColours(measurements, pins, CANONICAL_LABS);
+    const { colorOf, overPinned } =
+      calibrated ??
+      relabelCube(
+        measurements.filter((m) => isCentre(m.facelet)),
+        pins,
+        CANONICAL_LABS,
+      );
 
     const next = previous.map((face) => face.map((row) => [...row]));
     const raw = previous.map((face) => face.map((row) => [...row]));
+    for (let facelet = 0; facelet < 54; facelet++) {
+      if (!scan.labs[facelet] || colorOf.has(facelet)) continue;
+      const f = Math.floor(facelet / 9);
+      const r = Math.floor((facelet % 9) / 3);
+      const c = facelet % 3;
+      next[f][r][c] = BLANK_COLOR;
+    }
+    // What the camera made of a square on its own: the nearest of the cube's own
+    // colours, with no nine-of-each imposed. Against the painted references this
+    // over-counted white on every flat webcam, so it is only consulted on a complete
+    // cube. In simulation that still catches a face scanned twice every time.
+    const readAlone = (lab: Lab) => {
+      if (!calibrated) return classifyLab(lab);
+      const costs = calibrated.references.map((reference) => stickerCost(lab, reference));
+      return COLOR_NAMES[costs.indexOf(Math.min(...costs))];
+    };
     for (const [facelet, id] of colorOf) {
       const f = Math.floor(facelet / 9);
       const r = Math.floor((facelet % 9) / 3);
@@ -340,7 +376,7 @@ const RubiksCubeApp: React.FC = () => {
       const pin = scan.pins[facelet];
       // A square the user set by hand is their word, not a reading, so it counts as
       // itself; anything else counts as whatever the camera made of it alone.
-      raw[f][r][c] = pin !== null ? COLOR_NAMES[pin] : measured ? classifyLab(measured) : COLOR_NAMES[id];
+      raw[f][r][c] = pin !== null ? COLOR_NAMES[pin] : measured ? readAlone(measured) : COLOR_NAMES[id];
     }
 
     // Hand the solver the same measurements, now paired with the colours the
@@ -361,6 +397,12 @@ const RubiksCubeApp: React.FC = () => {
             if (pin !== null) {
               return Array.from({ length: 6 }, (_, id) => (id === pin ? 0 : PINNED_ELSEWHERE));
             }
+            // Once the centres are in, "how unlike each colour" is measured against
+            // them too, so the diagnosis ranks misreads by the same yardstick.
+            const lab = scan.labs[facelet];
+            if (calibrated && lab) {
+              return calibrated.references.map((reference) => stickerCost(lab, reference));
+            }
             return scan.distances[facelet] ?? [];
           }),
         ),
@@ -369,7 +411,7 @@ const RubiksCubeApp: React.FC = () => {
 
     appliedRef.current = next.map((face) => face.map((row) => [...row]));
     setCubeColors(next);
-    setRawColors(raw);
+    setRawColors(calibrated ? raw : null);
     if (overPinned.length > 0) {
       pinWarningRef.current = true;
       setDiagnosis({
@@ -531,6 +573,12 @@ const RubiksCubeApp: React.FC = () => {
       />
       <div style={{ marginTop: '10px' }}>
         <p style={{ margin: '0 0 8px' }}>Side {currentSide + 1} of 6 — show the next face, then:</p>
+        {tally.scanned > 0 && tally.scanned < 54 && (
+          <p style={{ margin: '0 0 8px', fontSize: '0.78rem', opacity: 0.8 }}>
+            Only the centres are coloured until all six sides are scanned; the rest are
+            read against the cube's own colours once it is complete.
+          </p>
+        )}
         <button onClick={handlePreviousSide}>Previous Side</button>
         <button onClick={handleRetake} style={{ marginLeft: '8px' }}>Retake</button>
         <button onClick={handleNextSide} style={{ marginLeft: '8px' }}>Next Side</button>

@@ -4,12 +4,12 @@
 // search rather than trusted. The rest measures what the labelling actually buys.
 import { build } from './build.mjs';
 const out = build();
-const { solveAssignment, assignWithCapacity, relabelCube, measurementLightnessOffset } =
+const { solveAssignment, assignWithCapacity, relabelCube, relabelAgainstOwnColours, measurementLightnessOffset } =
   await import(`${out}/cubeAssignment.js`);
 const { CANONICAL_LABS } = await import(`${out}/colorRecognition.js`);
 const { colorTally, preflight, colorId, COLOR_NAMES } = await import(`${out}/cubeDiagnosis.js`);
 const { blankCubeColors } = await import(`${out}/cubeColors.js`);
-import { rngFor, makeScan, makeTruth, countErrors, ALL_FACELETS, SIDE_ORDER, check, finish } from './harness.mjs';
+import { rngFor, makeScan, makeTruth, countErrors, ALL_FACELETS, SIDE_ORDER, FAR_FROM_REFERENCE, check, finish } from './harness.mjs';
 
 console.log('=== cubeAssignment: correctness ===\n');
 
@@ -221,6 +221,62 @@ console.log('  re-run each scan two stops darker and the labelling must not budg
   console.log('\n  The offset column is what the app was silently charging every square');
   console.log('  before this: a real cube on a webcam reads about 35 L* below the');
   console.log('  references, and nine squares against a cap of nine could not absorb it.');
+}
+
+console.log('\n=== a finished cube, labelled against its own colours ===\n');
+console.log('  Once every face is in, the app re-takes each colour\'s reference as the');
+console.log('  median of its nine squares and labels the cube once more against those.');
+console.log('  Errors of 54. "logo" replaces the white centre\'s reading with dark grey,');
+console.log('  which is what a sampled logo looks like; labelling against the six centres');
+console.log('  alone lost 7.6-30 squares to it on a flat camera. "teal" renders green');
+console.log('  as a dark teal and red as maroon, as the first real webcam scan did.\n');
+{
+  const tealGreen = (measurements, truth) =>
+    measurements.map((m) => {
+      const { L, a, b } = m.lab;
+      if (truth[m.facelet] === 4) return { facelet: m.facelet, lab: { L: L * 0.45, a: a * 0.25 - 4, b: b * 0.2 - 3 } };
+      if (truth[m.facelet] === 0) return { facelet: m.facelet, lab: { L: L * 0.7, a: a * 0.8, b: b * 0.6 } };
+      return m;
+    });
+  const OWN_WORLDS = {
+    ...WORLDS,
+    'far from reference': { gains: [1, 0.9, 0.78], exposure: 0.7, base: FAR_FROM_REFERENCE, drift: 0.1 },
+    'flat webcam': { gains: [1, 0.9, 0.78], exposure: 0.8, saturation: 0.4, flatten: 0.27, drift: 0.05 },
+    'flat, cross-talk': { gains: [1, 0.9, 0.78], exposure: 0.6, saturation: 0.5, flatten: 0.2, crosstalk: 0.15, drift: 0.05 },
+  };
+  const runs = 250;
+  console.log('  world                   painted   own   own+logo  |  teal: painted   own');
+  for (const [name, world] of Object.entries(OWN_WORLDS)) {
+    const e = { painted: 0, own: 0, logo: 0, tealPainted: 0, tealOwn: 0 };
+    let legal = 0;
+    for (let s = 0; s < runs; s++) {
+      const { truth, measurements } = makeScan(s * 7919 + name.length * 3, world);
+      const errors = (labeller, ms) => countErrors(labeller(ms, [], CANONICAL_LABS).colorOf, truth, ALL_FACELETS);
+      e.painted += errors(relabelCube, measurements);
+      const result = relabelAgainstOwnColours(measurements, [], CANONICAL_LABS);
+      e.own += countErrors(result.colorOf, truth, ALL_FACELETS);
+      const counts = new Array(6).fill(0);
+      for (let i = 0; i < 54; i++) counts[result.colorOf.get(i)]++;
+      if (counts.every((c) => c === 9)) legal++;
+      const whiteCentre = [4, 13, 22, 31, 40, 49].find((f) => truth[f] === 2);
+      const logoed = measurements.map((m) =>
+        m.facelet === whiteCentre ? { facelet: m.facelet, lab: { L: 35, a: 1, b: -2 } } : m,
+      );
+      e.logo += errors(relabelAgainstOwnColours, logoed);
+      e.tealPainted += errors(relabelCube, tealGreen(measurements, truth));
+      e.tealOwn += errors(relabelAgainstOwnColours, tealGreen(measurements, truth));
+    }
+    const f = (v, w) => (v / runs).toFixed(2).padStart(w);
+    console.log(`  ${name.padEnd(22)} ${f(e.painted, 8)} ${f(e.own, 5)} ${f(e.logo, 10)}  | ${f(e.tealPainted, 13)} ${f(e.tealOwn, 5)}`);
+    check(`own-colour labelling yields nine of each in ${name}`, legal === runs, `${runs - legal} of ${runs}`);
+    check(`own-colour labelling is no worse than painted in ${name}`, e.own <= e.painted + 0.1 * runs, `${f(e.own, 0)} vs ${f(e.painted, 0)}`);
+    check(`a logo on the white centre costs under a square in ${name}`, e.logo - e.own < runs, f(e.logo - e.own, 0));
+  }
+  const incomplete = makeScan(77, WORLDS['warm, dim']).measurements.filter((m) => m.facelet !== 40);
+  check('an incomplete cube is not relabelled', relabelAgainstOwnColours(incomplete, [], CANONICAL_LABS) === null);
+  const confident = Array.from({ length: 54 }, (_, facelet) => ({ facelet, lab: CANONICAL_LABS[Math.floor(facelet / 9)] }));
+  const pinnedResult = relabelAgainstOwnColours(confident, [{ facelet: 0, color: 5 }], CANONICAL_LABS);
+  check('a pin is still honoured', pinnedResult.colorOf.get(0) === 5);
 }
 
 console.log('\n=== the grid the app ends up with is legal ===\n');

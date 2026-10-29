@@ -142,3 +142,18 @@ as indicative only.
 **Only one real scan has ever been compared against this**, and it found a bug none
 of the benchmarks did — see above. When a real scan and this harness disagree, the
 harness is wrong.
+
+## Labelling a finished cube against its own colours
+
+Real scans kept showing green as white, yellow or orange, and most of that was on the
+face being scanned, where nine-of-each is barely a constraint. So the app now colours
+only the centres while scanning, and once all 54 squares are in, re-takes each colour's
+reference as the median of its nine squares and labels the cube once more against those
+(`relabelAgainstOwnColours`). Not the calibration rejected above: that fitted references
+to partial scans; this waits for a complete cube.
+
+Labelling against the six measured centres alone was tried first and dropped. One sticker
+is one reading, and a logo on the white centre reads as dark grey: on a flat camera that
+cost 7.6 and then 25 squares of 54. The median of nine does not notice the logo, and is
+level with or ahead of the painted references in every world, most in heavy exposure
+drift (2.76 -> 2.02) and on a camera that renders green dark teal (5.18 -> 2.47 in drift).
