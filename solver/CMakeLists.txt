@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16.0)
+cmake_minimum_required(VERSION 3.18)
 find_program(CCACHE_PROGRAM ccache)
 if (CCACHE_PROGRAM)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
@@ -50,8 +50,14 @@ find_package(Threads)
 
 include(CMake/SetWarnings.cmake)
 
-include(CMake/Fetch3rdParty.cmake)
-Fetch3rdParty()
+include(FetchContent)
+FetchContent_Declare(cmake-dep
+        GIT_REPOSITORY https://github.com/jorgen/cmake-dep.git
+        GIT_TAG 756bee3072d1bf67e179b62a9635cdcdef5931e7)
+FetchContent_MakeAvailable(cmake-dep)
+list(APPEND CMAKE_MODULE_PATH "${cmake-dep_SOURCE_DIR}/cmake")
+include(CmDepMain)
+CmDepFetch()
 include(CMake/Build3rdParty.cmake)
 Build3rdParty()
 

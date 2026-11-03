@@ -63,30 +63,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      DEPS_DIR: ${{ github.workspace }}/.deps
       CC: gcc-14
       CXX: g++-14
+      # cmake-dep's source cache (relative paths resolve against the project root).
+      CMDEP_DIR: .cmdep
     steps:
       - uses: actions/checkout@v4
-      - name: Install toolchain (GCC 14, Ninja, CMake ≥ 3.30)
+      - name: Install toolchain (GCC 14, Ninja, CMake ≥ 3.30; Go is on the runner for BoringSSL)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends g++-14 ninja-build
           pipx install cmake
-      - name: Fetch pinned dependencies
-        run: |
-          clone() {
-            git clone --filter=blob:none "https://github.com/jorgen/$1.git" "$DEPS_DIR/$1"
-            git -C "$DEPS_DIR/$1" checkout --quiet "$2"
-          }
-          clone vio       f2d0267242e1d22f120926320258f0463ce7d860
-          clone structify 7ff77ebeb8da5c28d24d88a55abde350e0f0e0e4
-          clone prism     6fc71eb5c854b35abaab86e51631e4b008b9878d
+      - name: Cache dependency sources
+        uses: actions/cache@v4
+        with:
+          path: .cmdep
+          key: cmdep-${{ hashFiles('cmdep.lock') }}
+          restore-keys: cmdep-
+      # The dependency pins live in cmdep-packages.cmake / cmdep.lock, shared with the image
+      # build; CMDEP_LOCKED fails if the lock is out of date.
       - name: Build
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCUBE_VIO_DIR="$DEPS_DIR/vio" -DCUBE_STRUCTIFY_DIR="$DEPS_DIR/structify" \
-            -DCUBE_PRISM_DIR="$DEPS_DIR/prism"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMDEP_LOCKED=ON
           cmake --build build --target cube_server
 
   image:

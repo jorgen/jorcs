@@ -1,9 +1,10 @@
-include(GetPackageInstallDir)
-
 macro(Build3rdParty)
+  # The dependencies are static whatever BUILD_SHARED_LIBS says for jorcs itself.
   set(OLD_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
   set(BUILD_SHARED_LIBS OFF)
-  add_subdirectory(${fmt_SOURCE_DIR})
-  add_subdirectory(${doctest_SOURCE_DIR})
+  CmDepAddPackage(fmt CONFIG)
+  if (BUILD_TESTS)
+    CmDepAddPackage(doctest CONFIG)
+  endif ()
   set(BUILD_SHARED_LIBS ${OLD_BUILD_SHARED_LIBS})
 endmacro()
